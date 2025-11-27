@@ -1,0 +1,135 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  background: radial-gradient(circle at 20% 20%, #f1f5ff, #fdfbff);
+  color: #0b1c2c;
+}
+
+.app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 20px 40px;
+}
+
+header {
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #4d5dfc;
+  font-weight: 600;
+}
+
+h1 {
+  margin: 6px 0;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 0;
+  color: #516070;
+}
+
+main {
+  background: #fff;
+  border: 1px solid #dfe5f3;
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(29, 46, 123, 0.08);
+  padding: 16px;
+}
+
+.chat-box {
+  height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px;
+}
+
+.message {
+  max-width: 78%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.assistant {
+  align-self: flex-start;
+  background: #eef2ff;
+  border: 1px solid #d9e1ff;
+}
+
+.user {
+  align-self: flex-end;
+  background: #0b1c2c;
+  color: #f6f8ff;
+  border: 1px solid #0b1c2c;
+}
+
+.message pre {
+  background: #0b1c2c;
+  color: #f6f8ff;
+  padding: 10px;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.input-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.input-row input {
+  flex: 1;
+  padding: 12px 14px;
+  border: 1px solid #c8d3e6;
+  border-radius: 10px;
+  font-size: 15px;
+  outline: none;
+}
+
+.input-row input:focus {
+  border-color: #4d5dfc;
+  box-shadow: 0 0 0 3px rgba(77, 93, 252, 0.15);
+}
+
+.input-row button {
+  padding: 0 18px;
+  background: #4d5dfc;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.12s ease;
+}
+
+.input-row button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(77, 93, 252, 0.25);
+}
+
+.input-row button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+@media (max-width: 640px) {
+  .message {
+    max-width: 100%;
+  }
+}

@@ -16,13 +16,26 @@
       </div>
     </header>
 
-    <main>
-      <div id="chat-box" class="chat-box"></div>
-      <div class="input-row">
-        <input id="user-input" type="text" placeholder="向助手提问，例如：加载 Iris 数据集" autocomplete="off">
-        <button id="send-button">发送</button>
-      </div>
-    </main>
+    <div class="layout" id="layout">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-top">
+          <button id="toggle-sidebar" class="ghost-btn" title="折叠/展开侧栏">☰</button>
+          <button id="new-chat" class="primary-btn">
+            <span class="icon">＋</span>
+            <span class="label">新建对话</span>
+          </button>
+        </div>
+        <div class="session-list" id="session-list"></div>
+      </aside>
+
+      <main class="chat-panel">
+        <div id="chat-box" class="chat-box"></div>
+        <div class="input-row">
+          <input id="user-input" type="text" placeholder="向助手提问，例如：加载 Iris 数据集" autocomplete="off">
+          <button id="send-button">发送</button>
+        </div>
+      </main>
+    </div>
   </div>
 
   <script src="app.js"></script>

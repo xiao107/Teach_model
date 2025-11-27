@@ -21,12 +21,23 @@ SYSTEM_PROMPT = """你是一个专业、耐心且友好的“数据科学助手�
 3. 数据交互：基于加载的数据，回答用户的问题，如“显示数据前5行”、“数据有哪些列”、“这个数据集是用于分类还是回归？”。
 4. 保持上下文：你必须记住当前会话中已经加载了哪个数据集，后续所有操作都围绕该数据集展开，除非用户明确要求更换。
 5. 友好交流：你的回复应该像对话一样，清晰、简洁，并在适当的时候使用 Markdown 格式化（例如代码块、列表）。
+6. 引导式流程：按步骤引导用户完成数据集选择、数据清洗、EDA、算法推荐、模型训练评估，再到总结报告，每一步都提供选项并等待用户选择。
 
 你的工作流程严格遵循以下模板：
 * 开场：当用户开始对话时，你必须首先问候用户，并询问他们想加载哪个数据集。
 * 数据加载后：当一个数据集被加载后，你必须确认加载成功，并询问用户“接下来想做什么？”（例如：查看数据、数据摘要、预处理等）。
 * 切换数据：如果用户想要加载新数据，你要确认并清空当前状态，再加载新的。
 """
+
+DATASET_CATALOG = (
+    "可选数据集列表：\n"
+    "1) Iris（鸢尾花）：150 样本，4 个特征，三分类，入门分类示例。\n"
+    "2) Wine（葡萄酒）：178 样本，13 理化特征，多分类，质量辨别。\n"
+    "3) Breast Cancer（乳腺癌）：569 样本，30 特征，二分类，良/恶性判别。\n"
+    "4) California Housing（加州房价）：20,640 样本，8 特征，回归预测房价中位数。\n"
+    "5) dot 图数据：自备 data.dot，解析为边列表。\n"
+    "回复示例：“加载 Iris 数据集”或“选择 California Housing”。"
+)
 
 
 class ConversationManager:
@@ -128,10 +139,17 @@ async def process_user_command(
     if is_load_intent:
         dataset_name = _detect_dataset_name(command_lower)
         if dataset_name is None:
-            response = (
-                "我可以加载的数据集有：Iris, Wine, Breast Cancer, "
-                "California Housing，以及 dot 数据集。请再确认想要的名称。"
+            system_note = (
+                "用户请求加载数据集，但未匹配到名称。请结合可用列表引导其重新选择。"
             )
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": DATASET_CATALOG},
+                {"role": "system", "content": system_note},
+            ]
+            messages.extend(manager.get_history())
+            messages.append({"role": "user", "content": command})
+            response = await invoke_deepseek(api_key, messages, model_name=model_name)
             manager.add_message("user", command)
             manager.add_message("assistant", response)
             return response
@@ -146,10 +164,20 @@ async def process_user_command(
             else:
                 df, descr = data_loader.load_sklearn_dataset(dataset_name)
             manager.set_data(df, dataset_name)
-            response = (
-                f"{dataset_name} 数据集已成功加载，包含 {len(df)} 行、"
-                f"{len(df.columns)} 列。{descr[:200]} 接下来您想做什么？"
+            manager.set_data(df, dataset_name)
+            summary = (
+                f"数据集 {dataset_name} 已加载。形状：{df.shape}。"
+                f"示例列：{', '.join(map(str, df.columns[:5]))}。"
+                "请用中文总结加载结果并给出下一步（清洗、EDA、建模等）建议，引导用户选择。"
             )
+            messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": DATASET_CATALOG},
+                {"role": "system", "content": summary},
+            ]
+            messages.extend(manager.get_history())
+            messages.append({"role": "user", "content": command})
+            response = await invoke_deepseek(api_key, messages, model_name=model_name)
         except Exception as exc:
             response = f"加载数据集时出错：{exc}"
 
@@ -160,24 +188,25 @@ async def process_user_command(
     # Non-load commands: must have existing data.
     df, dataset_name = manager.get_data()
     if df is None:
-        response = "请先加载一个数据集，例如“加载 Iris 数据集”。"
-        manager.add_message("user", command)
-        manager.add_message("assistant", response)
-        return response
-
-    simple = _format_simple_response(df, command)
-    if simple is not None:
-        response = simple
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": DATASET_CATALOG},
+            {"role": "system", "content": "当前尚未加载任何数据集，请引导用户先选择并加载。"},
+        ]
+        messages.extend(manager.get_history())
+        messages.append({"role": "user", "content": command})
+        response = await invoke_deepseek(api_key, messages, model_name=model_name)
         manager.add_message("user", command)
         manager.add_message("assistant", response)
         return response
 
     data_summary = (
-        f"当前已加载数据集：{dataset_name}。"
-        f"数据形状：{df.shape}。示例列：{', '.join(map(str, df.columns[:5]))}。"
+        f"当前已加载数据集：{dataset_name}，形状：{df.shape}，"
+        f"示例列：{', '.join(map(str, df.columns[:5]))}。"
     )
     messages: List[Dict[str, str]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": DATASET_CATALOG},
         {"role": "system", "content": data_summary},
     ]
     messages.extend(manager.get_history())

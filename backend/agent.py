@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 from . import data_loader
 
@@ -70,7 +71,10 @@ class ConversationManager:
 
 
 async def invoke_deepseek(
-    api_key: str, messages: List[Dict[str, str]], model_name: str = "deepseek-chat"
+    api_key: str,
+    messages: List[Dict[str, str]],
+    model_name: str = "deepseek-chat",
+    include_reasoning: bool = True,
 ) -> str:
     """
     Call the DeepSeek chat completion API and return the assistant reply text.
@@ -81,6 +85,8 @@ async def invoke_deepseek(
     url = "https://api.deepseek.com/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}"}
     payload = {"model": model_name, "messages": messages}
+    if include_reasoning and "reasoner" in model_name:
+        payload["return_reasoning"] = True
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(url, headers=headers, json=payload)
@@ -88,7 +94,15 @@ async def invoke_deepseek(
         data = response.json()
 
     try:
-        return data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        content = message.get("content", "")
+        reasoning = (
+            message.get("reasoning_content")
+            or message.get("model_extra", {}).get("reasoning_content")
+        )
+        if include_reasoning and reasoning:
+            return f"**思考过程**\n{reasoning}\n\n**最终回答**\n{content}"
+        return content
     except (KeyError, IndexError) as exc:
         raise RuntimeError(f"Unexpected DeepSeek response: {data}") from exc
 
@@ -125,6 +139,23 @@ def _format_simple_response(df: pd.DataFrame, command: str) -> Optional[str]:
         return df.describe(include="all").to_string()
 
     return None
+
+
+def _standardize_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
+    numeric_cols = df.select_dtypes(include=["number"]).columns
+    if numeric_cols.empty:
+        return df, "未找到可标准化的数值特征。"
+
+    scaler = StandardScaler()
+    scaled = scaler.fit_transform(df[numeric_cols])
+    new_df = df.copy()
+    new_df[numeric_cols] = scaled
+    preview = new_df.head(5).to_string()
+    message = (
+        f"已对数值特征进行标准化，列：{', '.join(numeric_cols)}。\n"
+        f"预览（前5行）：\n```\n{preview}\n```"
+    )
+    return new_df, message
 
 
 async def process_user_command(
@@ -177,7 +208,9 @@ async def process_user_command(
             ]
             messages.extend(manager.get_history())
             messages.append({"role": "user", "content": command})
-            response = await invoke_deepseek(api_key, messages, model_name=model_name)
+            response = await invoke_deepseek(
+                api_key, messages, model_name=model_name, include_reasoning=True
+            )
         except Exception as exc:
             response = f"加载数据集时出错：{exc}"
 
@@ -195,10 +228,20 @@ async def process_user_command(
         ]
         messages.extend(manager.get_history())
         messages.append({"role": "user", "content": command})
-        response = await invoke_deepseek(api_key, messages, model_name=model_name)
+        response = await invoke_deepseek(
+            api_key, messages, model_name=model_name, include_reasoning=True
+        )
         manager.add_message("user", command)
         manager.add_message("assistant", response)
         return response
+
+    # Local standardization handling to avoid模型调用失败
+    if "标准化" in command or "归一化" in command or "scal" in command_lower:
+        new_df, msg = _standardize_features(df)
+        manager.set_data(new_df, dataset_name or "当前数据集")
+        manager.add_message("user", command)
+        manager.add_message("assistant", msg)
+        return msg
 
     data_summary = (
         f"当前已加载数据集：{dataset_name}，形状：{df.shape}，"
@@ -213,7 +256,9 @@ async def process_user_command(
     messages.append({"role": "user", "content": command})
 
     try:
-        response = await invoke_deepseek(api_key, messages, model_name=model_name)
+        response = await invoke_deepseek(
+            api_key, messages, model_name=model_name, include_reasoning=True
+        )
     except Exception as exc:
         response = f"调用模型时出现问题：{exc}"
 

@@ -29,25 +29,154 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;");
 }
 
-function renderMarkdownLite(text) {
+function renderMarkdown(text) {
   const parts = text.split(/```/);
-  return parts
-    .map((part, index) => {
-      if (index % 2 === 1) {
-        return `<pre>${escapeHtml(part.trim())}</pre>`;
+  const htmlParts = parts.map((seg, index) => {
+    if (index % 2 === 1) {
+      const [langLine, ...rest] = seg.trim().split("\n");
+      const codeText = rest.length ? rest.join("\n") : langLine;
+      const lang = rest.length ? langLine : "";
+      return `<pre><code class="lang-${escapeHtml(lang)}">${escapeHtml(codeText)}</code></pre>`;
+    }
+    return renderInlineMarkdown(seg);
+  });
+  return htmlParts.join("");
+}
+
+function renderInlineMarkdown(text) {
+  const lines = text.split("\n");
+  const rendered = [];
+  let inList = false;
+  let listType = "ul";
+  let inTable = false;
+  let tableRows = [];
+
+  const flushList = () => {
+    if (inList) {
+      rendered.push(`</${listType}>`);
+      inList = false;
+    }
+  };
+
+  const flushTable = () => {
+    if (inTable) {
+      rendered.push("<table>");
+      tableRows.forEach((row, idx) => {
+        const tag = idx === 0 ? "th" : "td";
+        rendered.push("<tr>" + row.map((cell) => `<${tag}>${cell}</${tag}>`).join("") + "</tr>");
+      });
+      rendered.push("</table>");
+      tableRows = [];
+      inTable = false;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    // Skip excessive empty lines
+    if (!line.trim()) {
+      continue;
+    }
+    // Table detection: lines with pipes and at least 2 cells.
+    if (line.includes("|")) {
+      const cells = line.split("|").map((c) => escapeHtml(c.trim())).filter(Boolean);
+      if (cells.length >= 2) {
+        flushList();
+        inTable = true;
+        tableRows.push(cells);
+        continue;
       }
-      return escapeHtml(part).replace(/\n/g, "<br>");
-    })
-    .join("");
+    }
+
+    flushTable();
+
+    // Headings
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushList();
+      const level = headingMatch[1].length;
+      rendered.push(`<h${level}>${escapeHtml(headingMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    // Blockquote
+    const quoteMatch = line.match(/^>\s+(.*)$/);
+    if (quoteMatch) {
+      flushList();
+      rendered.push(`<blockquote>${escapeHtml(quoteMatch[1])}</blockquote>`);
+      continue;
+    }
+
+    // Lists
+    const listMatch = line.match(/^(\d+\.|[-*])\s+(.*)$/);
+    if (listMatch) {
+      const symbol = listMatch[1];
+      const content = listMatch[2];
+      const type = symbol.endsWith(".") ? "ol" : "ul";
+      if (!inList || listType !== type) {
+        flushList();
+        listType = type;
+        rendered.push(`<${type}>`);
+        inList = true;
+      }
+      // Task list
+      const taskMatch = content.match(/^\[( |x|X)\]\s+(.*)$/);
+      if (taskMatch) {
+        const checked = taskMatch[1].toLowerCase() === "x" ? "checked" : "";
+        rendered.push(
+          `<li><input type="checkbox" disabled ${checked}>${escapeHtml(taskMatch[2])}</li>`
+        );
+      } else {
+        rendered.push(`<li>${escapeHtml(content)}</li>`);
+      }
+      continue;
+    }
+
+    // Bold
+    let htmlLine = escapeHtml(line)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+    rendered.push(htmlLine);
+  }
+
+  flushList();
+  flushTable();
+  return rendered.join("<br>");
 }
 
 function displayMessage(content, sender) {
   const message = document.createElement("div");
   message.classList.add("message", sender);
-  message.innerHTML = renderMarkdownLite(content);
+  message.innerHTML = renderMarkdown(content);
   chatBox.appendChild(message);
   chatBox.scrollTop = chatBox.scrollHeight;
   return message;
+}
+
+function streamIntoMessage(messageEl, content) {
+  let index = 0;
+  const total = content.length;
+  const step = Math.max(1, Math.floor(total / 140)); // 慢一点，便于观察流式
+
+  function tick() {
+    index = Math.min(total, index + step);
+    const partial = content.slice(0, index);
+    messageEl.innerHTML = renderMarkdown(partial);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    if (index < total) {
+      setTimeout(tick, 18); // 控制速度
+    }
+  }
+
+  tick();
+}
+
+function showToast(text) {
+  const toast = document.getElementById("toast");
+  if (!toast) return;
+  toast.textContent = text;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 2000);
 }
 
 function loadSessions() {
@@ -150,7 +279,8 @@ async function sendMessage(presetText, options = {}) {
     userInput.value = "";
   }
 
-  const loading = displayMessage("加载中...", "assistant");
+  // 展示思考过程，不覆写最终回复
+  const thinkingBubble = displayMessage("🤔 大模型正在思考...", "assistant");
 
   try {
     const response = await fetch("/api/chat", {
@@ -165,11 +295,27 @@ async function sendMessage(presetText, options = {}) {
 
     const data = await response.json();
     const reply = data.reply || "没有收到回复。";
-    loading.innerHTML = renderMarkdownLite(reply);
-    appendHistory("assistant", reply);
+    const match = reply.match(/\*\*思考过程\*\*\s*([\s\S]*?)\n\s*\*\*最终回答\*\*\s*([\s\S]*)/);
+
+    if (match) {
+      const reasoning = match[1].trim();
+      const finalAnswer = match[2].trim();
+      thinkingBubble.classList.add("reasoning");
+      streamIntoMessage(thinkingBubble, reasoning);
+      appendHistory("assistant", `思考过程:\n${reasoning}`);
+
+      const finalBubble = displayMessage(finalAnswer, "assistant");
+      finalBubble.classList.add("final-answer");
+      appendHistory("assistant", finalAnswer);
+    } else {
+      streamIntoMessage(thinkingBubble, reply);
+      appendHistory("assistant", reply);
+    }
   } catch (error) {
-    loading.innerHTML = renderMarkdownLite(`请求失败：${error.message}`);
-    appendHistory("assistant", `请求失败：${error.message}`);
+    const errMsg = `请求失败：${error.message}`;
+    thinkingBubble.innerHTML = renderMarkdown(errMsg);
+    appendHistory("assistant", errMsg);
+    showToast(errMsg);
   }
 }
 

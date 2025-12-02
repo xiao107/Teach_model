@@ -216,6 +216,19 @@ h1 {
   border: 1px solid #d9e1ff;
 }
 
+.assistant.reasoning {
+  background: #111827;
+  color: #e5e7eb;
+  border: 1px solid #1f2937;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  opacity: 0.9;
+}
+
+.assistant.final-answer {
+  background: #eef8ff;
+  border-color: #cfe3ff;
+}
+
 .user {
   align-self: flex-end;
   background: #0b1c2c;
@@ -229,6 +242,81 @@ h1 {
   padding: 10px;
   border-radius: 10px;
   overflow-x: auto;
+}
+
+.message code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  background: #f4f6fb;
+  color: #0b1c2c;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.message blockquote {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #c8d3e6;
+  background: #f7f9ff;
+}
+
+.message h1,
+.message h2,
+.message h3,
+.message h4 {
+  margin: 6px 0;
+  line-height: 1.3;
+}
+
+.message table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+
+.message th,
+.message td {
+  border: 1px solid #dfe5f3;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.message ul,
+.message ol {
+  margin: 4px 0 8px 20px;
+  padding: 0;
+}
+
+.message ul li {
+  list-style: disc;
+}
+
+.message ol li {
+  list-style: decimal;
+}
+
+.message ul li input[type="checkbox"] {
+  margin-right: 6px;
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #0b1c2c;
+  color: #f6f8ff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 999;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .input-row {

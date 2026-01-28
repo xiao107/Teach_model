@@ -13,6 +13,8 @@ const SIDEBAR_KEY = "sidebar_collapsed";
 let sessions = loadSessions();
 let currentSessionId = localStorage.getItem(CURRENT_KEY);
 let isSidebarCollapsed = localStorage.getItem(SIDEBAR_KEY) === "1";
+let isComposing = false;
+let markedRenderer = null;
 
 if (!sessions.length || !currentSessionId || !sessions.find((s) => s.id === currentSessionId)) {
   createNewSession(true);
@@ -22,6 +24,36 @@ if (!sessions.length || !currentSessionId || !sessions.find((s) => s.id === curr
   renderHistory(currentSessionId);
 }
 
+if (window.marked) {
+  markedRenderer = new marked.Renderer();
+  markedRenderer.link = function (href, title, text) {
+    const safeHref = href || "";
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+    return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer"${titleAttr}>${text}</a>`;
+  };
+
+  marked.setOptions({
+    gfm: true,
+    breaks: true,
+    smartLists: true,
+    mangle: false,
+    headerIds: true,
+    highlight(code, lang) {
+      if (window.hljs) {
+        try {
+          if (lang && hljs.getLanguage(lang)) {
+            return hljs.highlight(code, { language: lang }).value;
+          }
+          return hljs.highlightAuto(code).value;
+        } catch {
+          return escapeHtml(code);
+        }
+      }
+      return escapeHtml(code);
+    },
+  });
+}
+
 function escapeHtml(str) {
   return str
     .replace(/&/g, "&amp;")
@@ -29,126 +61,327 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;");
 }
 
-function renderMarkdown(text) {
-  const parts = text.split(/```/);
-  const htmlParts = parts.map((seg, index) => {
-    if (index % 2 === 1) {
-      const [langLine, ...rest] = seg.trim().split("\n");
-      const codeText = rest.length ? rest.join("\n") : langLine;
-      const lang = rest.length ? langLine : "";
-      return `<pre><code class="lang-${escapeHtml(lang)}">${escapeHtml(codeText)}</code></pre>`;
-    }
-    return renderInlineMarkdown(seg);
-  });
-  return htmlParts.join("");
-}
+function parseModelOutput(raw) {
+  const blocks = [];
+  if (!raw) return [{ type: "text", content: "" }];
 
-function renderInlineMarkdown(text) {
-  const lines = text.split("\n");
-  const rendered = [];
-  let inList = false;
-  let listType = "ul";
-  let inTable = false;
-  let tableRows = [];
+  const lines = raw.split("\n");
+  let mode = "text";
+  let buffer = [];
 
-  const flushList = () => {
-    if (inList) {
-      rendered.push(`</${listType}>`);
-      inList = false;
+  const flush = (type) => {
+    const text = buffer.join("\n").trim();
+    if (text) {
+      blocks.push({ type, content: text });
     }
+    buffer = [];
   };
 
-  const flushTable = () => {
-    if (inTable) {
-      rendered.push("<table>");
-      tableRows.forEach((row, idx) => {
-        const tag = idx === 0 ? "th" : "td";
-        rendered.push("<tr>" + row.map((cell) => `<${tag}>${cell}</${tag}>`).join("") + "</tr>");
-      });
-      rendered.push("</table>");
-      tableRows = [];
-      inTable = false;
-    }
-  };
+  for (const line of lines) {
+    const trimmed = line.trim();
 
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    // Skip excessive empty lines
-    if (!line.trim()) {
-      continue;
-    }
-    // Table detection: lines with pipes and at least 2 cells.
-    if (line.includes("|")) {
-      const cells = line.split("|").map((c) => escapeHtml(c.trim())).filter(Boolean);
-      if (cells.length >= 2) {
-        flushList();
-        inTable = true;
-        tableRows.push(cells);
-        continue;
-      }
-    }
-
-    flushTable();
-
-    // Headings
-    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
-    if (headingMatch) {
-      flushList();
-      const level = headingMatch[1].length;
-      rendered.push(`<h${level}>${escapeHtml(headingMatch[2])}</h${level}>`);
+    // 进入代码模式的触发词
+    if (/我执行了以下代码/.test(trimmed)) {
+      flush(mode);
+      mode = "code";
       continue;
     }
 
-    // Blockquote
-    const quoteMatch = line.match(/^>\s+(.*)$/);
-    if (quoteMatch) {
-      flushList();
-      rendered.push(`<blockquote>${escapeHtml(quoteMatch[1])}</blockquote>`);
+    // 进入输出模式
+    if (/执行结果/.test(trimmed)) {
+      flush(mode);
+      mode = "output";
       continue;
     }
 
-    // Lists
-    const listMatch = line.match(/^(\d+\.|[-*])\s+(.*)$/);
-    if (listMatch) {
-      const symbol = listMatch[1];
-      const content = listMatch[2];
-      const type = symbol.endsWith(".") ? "ol" : "ul";
-      if (!inList || listType !== type) {
-        flushList();
-        listType = type;
-        rendered.push(`<${type}>`);
-        inList = true;
-      }
-      // Task list
-      const taskMatch = content.match(/^\[( |x|X)\]\s+(.*)$/);
-      if (taskMatch) {
-        const checked = taskMatch[1].toLowerCase() === "x" ? "checked" : "";
-        rendered.push(
-          `<li><input type="checkbox" disabled ${checked}>${escapeHtml(taskMatch[2])}</li>`
-        );
-      } else {
-        rendered.push(`<li>${escapeHtml(content)}</li>`);
-      }
-      continue;
+    // 从输出回到文本的简单启发
+    if (mode === "output" && /^老师|^好的|^接下来|^请问/.test(trimmed)) {
+      flush("output");
+      mode = "text";
     }
 
-    // Bold
-    let htmlLine = escapeHtml(line)
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>");
-    rendered.push(htmlLine);
+    buffer.push(line);
   }
 
-  flushList();
-  flushTable();
-  return rendered.join("<br>");
+  flush(mode);
+
+  if (!blocks.length) {
+    blocks.push({ type: "text", content: raw });
+  }
+
+  return blocks;
 }
 
-function displayMessage(content, sender) {
+function renderMarkdown(text) {
+  // Collapse blank lines aggressively to keep bubbles tight
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\n\s*\n+/g, "\n\n");
+  if (window.marked && window.DOMPurify) {
+    const html = marked.parse(normalized, {
+      renderer: markedRenderer || undefined,
+    });
+    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+  }
+  // Fallback: escape only, keep line breaks
+  return escapeHtml(normalized).replace(/\n/g, "<br>");
+}
+
+function createMessageWrapper(sender) {
+  const wrapper = document.createElement("div");
+  wrapper.classList.add("message-wrapper", sender);
+  return wrapper;
+}
+
+function addCopyButton(wrapperEl, textToCopy) {
+  if (!textToCopy) return;
+  const btn = document.createElement("button");
+  btn.classList.add("copy-btn");
+  btn.title = "复制";
+  btn.setAttribute("aria-label", "复制");
+  btn.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M9 6.5C9 5.67157 9.67157 5 10.5 5H17.5C18.3284 5 19 5.67157 19 6.5V17.5C19 18.3284 18.3284 19 17.5 19H10.5C9.67157 19 9 18.3284 9 17.5V6.5Z" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M6.5 8.5H6C5.17157 8.5 4.5 9.17157 4.5 10V18C4.5 18.8284 5.17157 19.5 6 19.5H14C14.8284 19.5 15.5 18.8284 15.5 18V17.5" stroke="currentColor" stroke-width="1.4"/>
+    </svg>
+  `;
+  btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      showToast("已复制");
+    } catch (err) {
+      showToast("复制失败");
+      console.error("Copy failed:", err);
+    }
+  });
+  const actions = document.createElement("div");
+  actions.classList.add("message-actions");
+  actions.appendChild(btn);
+  wrapperEl.appendChild(actions);
+}
+
+function displayMessage(content, sender, enableCopy = true) {
+  const wrapper = createMessageWrapper(sender);
   const message = document.createElement("div");
   message.classList.add("message", sender);
-  message.innerHTML = renderMarkdown(content);
-  chatBox.appendChild(message);
+  const body = document.createElement("div");
+  body.classList.add("markdown-body");
+  body.innerHTML = renderMarkdown(content);
+  message.appendChild(body);
+  if (enableCopy) {
+    addCopyButton(wrapper, content);
+  }
+  wrapper.appendChild(message);
+  chatBox.appendChild(wrapper);
+  chatBox.scrollTop = chatBox.scrollHeight;
+  return { wrapper, message };
+}
+
+function renderBlock(block) {
+  const wrapper = document.createElement("div");
+  wrapper.classList.add("block");
+
+  if (block.type === "text") {
+    wrapper.classList.add("markdown-body");
+    wrapper.innerHTML = renderMarkdown(block.content);
+    return wrapper;
+  }
+
+  const label = document.createElement("div");
+  label.classList.add("block-label");
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.textContent = block.content;
+  pre.appendChild(code);
+
+  if (block.type === "code") {
+    wrapper.classList.add("code-block");
+    label.textContent = "代码";
+  } else if (block.type === "output") {
+    wrapper.classList.add("output-block");
+    label.textContent = "执行结果";
+  } else {
+    label.textContent = block.type;
+  }
+
+  wrapper.appendChild(label);
+  wrapper.appendChild(pre);
+
+  if (window.hljs && (block.type === "code" || block.type === "output")) {
+    try {
+      hljs.highlightElement(code);
+    } catch {
+      /* highlight optional */
+    }
+  }
+  return wrapper;
+}
+
+function renderChart(chartPayload) {
+  if (!chartPayload || !window.echarts) return null;
+  const container = document.createElement("div");
+  container.classList.add("chart-container");
+  const height = chartPayload.height || 320;
+  container.style.height = `${height}px`;
+  container.style.width = "100%";
+
+  const fmtCat = (val) => {
+    if (typeof val === "number" && !Number.isInteger(val)) {
+      return parseFloat(val.toFixed(3)).toString();
+    }
+    return `${val}`;
+  };
+
+  // Defer init to ensure DOM attached
+  setTimeout(() => {
+    try {
+      const chart = echarts.init(container);
+      const type = chartPayload.type || "line";
+      const title = chartPayload.title || "";
+      const xLabel = chartPayload.xLabel || "";
+      const yLabel = chartPayload.yLabel || "";
+      const series = chartPayload.series || [];
+
+      let option = {
+        title: { text: title },
+        grid: { left: 48, right: 16, top: 50, bottom: 40 },
+        tooltip: { trigger: "axis" },
+      };
+
+      if (type === "heatmap") {
+        const data = chartPayload.data || [];
+        const xCats = chartPayload.xCategories || [];
+        const yCats = chartPayload.yCategories || [];
+        const maxVal = data.length ? Math.max(...data.map((d) => d[2] || 0)) : 0;
+        option = {
+          title: { text: title },
+          tooltip: { position: "top" },
+          grid: { left: 80, right: 20, top: 60, bottom: 60, containLabel: true },
+          xAxis: { type: "category", data: xCats.map(fmtCat), name: xLabel, splitArea: { show: true } },
+          yAxis: { type: "category", data: yCats.map(fmtCat), name: yLabel, splitArea: { show: true } },
+          visualMap: {
+            min: 0,
+            max: Math.max(maxVal, 1),
+            calculable: true,
+            orient: "horizontal",
+            left: "center",
+            bottom: 10,
+          },
+          series: [
+            {
+              name: title,
+              type: "heatmap",
+              data,
+              label: { show: true },
+              emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0, 0, 0, 0.5)" } },
+            },
+          ],
+        };
+      } else if (type === "scatter") {
+        option = {
+          title: { text: title },
+          tooltip: { trigger: "item" },
+          grid: { left: 60, right: 20, top: 50, bottom: 50 },
+          xAxis: { type: "value", name: xLabel, axisLabel: { formatter: (v) => fmtCat(v) } },
+          yAxis: { type: "value", name: yLabel, axisLabel: { formatter: (v) => fmtCat(v) } },
+          series: series.map((s) => ({
+            name: s.name || "series",
+            type: "scatter",
+            data: s.points || [],
+            symbolSize: 6,
+          })),
+        };
+      } else if (type === "bar") {
+        const firstSeries = series[0] || {};
+        const rawX = firstSeries.x || [];
+        const xData = rawX.map(fmtCat);
+        option = {
+          title: { text: title },
+          tooltip: { trigger: "axis" },
+          grid: { left: 60, right: 20, top: 50, bottom: 60 },
+          xAxis: {
+            type: "category",
+            data: xData,
+            name: xLabel,
+            axisLabel: { rotate: 30, formatter: (v) => fmtCat(v) },
+          },
+          yAxis: { type: "value", name: yLabel, axisLabel: { formatter: (v) => fmtCat(v) } },
+          series: series.map((s) => ({
+            name: s.name || "series",
+            type: "bar",
+            data: s.y || [],
+            barMaxWidth: 30,
+          })),
+        };
+      } else {
+        // default line
+        const firstSeries = series[0] || {};
+        const rawX = firstSeries.x || [];
+        const xData = rawX.map(fmtCat);
+        option = {
+          title: { text: title },
+          tooltip: { trigger: "axis" },
+          grid: { left: 48, right: 16, top: 50, bottom: 40 },
+          xAxis: {
+            type: "category",
+            name: xLabel,
+            data: xData,
+            boundaryGap: false,
+            axisLabel: { color: "#4b5563", fontSize: 12, formatter: (v) => fmtCat(v) },
+            nameTextStyle: { color: "#6b7280", fontSize: 12 },
+          },
+          yAxis: {
+            type: "value",
+            name: yLabel,
+            axisLabel: { color: "#4b5563", fontSize: 12, formatter: (v) => fmtCat(v) },
+            nameTextStyle: { color: "#6b7280", fontSize: 12 },
+            splitLine: { lineStyle: { color: "#e5e7eb" } },
+          },
+          series: series.map((s) => ({
+            name: s.name || "series",
+            type: "line",
+            smooth: true,
+            showSymbol: true,
+            symbolSize: 4,
+            data: s.y || [],
+            emphasis: { focus: "series" },
+            lineStyle: { width: 2 },
+          })),
+        };
+      }
+      chart.setOption(option);
+    } catch (err) {
+      console.error("Chart render error:", err);
+    }
+  }, 0);
+
+  return container;
+}
+
+function displayParsedMessage(content, sender, extras = {}) {
+  const wrapper = createMessageWrapper(sender);
+  const message = document.createElement("div");
+  message.classList.add("message", sender);
+
+  if (sender === "assistant") {
+    const blocks = parseModelOutput(content);
+    blocks.forEach((b) => {
+      message.appendChild(renderBlock(b));
+    });
+    if (extras.chart) {
+      const chartEl = renderChart(extras.chart);
+      if (chartEl) {
+        message.appendChild(chartEl);
+      }
+    }
+  } else {
+    const p = document.createElement("div");
+    p.classList.add("markdown-body");
+    p.innerHTML = renderMarkdown(content);
+    message.appendChild(p);
+  }
+
+  wrapper.appendChild(message);
+  addCopyButton(wrapper, content);
+  chatBox.appendChild(wrapper);
   chatBox.scrollTop = chatBox.scrollHeight;
   return message;
 }
@@ -161,7 +394,14 @@ function streamIntoMessage(messageEl, content) {
   function tick() {
     index = Math.min(total, index + step);
     const partial = content.slice(0, index);
-    messageEl.innerHTML = renderMarkdown(partial);
+    let target = messageEl.querySelector(".markdown-body");
+    if (!target) {
+      target = document.createElement("div");
+      target.classList.add("markdown-body");
+      messageEl.innerHTML = "";
+      messageEl.appendChild(target);
+    }
+    target.innerHTML = renderMarkdown(partial);
     chatBox.scrollTop = chatBox.scrollHeight;
     if (index < total) {
       setTimeout(tick, 18); // 控制速度
@@ -221,6 +461,9 @@ function renderSessionList() {
     item.classList.add("session-item");
     if (session.id === currentSessionId) item.classList.add("active");
 
+    const textWrap = document.createElement("div");
+    textWrap.classList.add("session-text");
+
     const title = document.createElement("p");
     title.classList.add("session-title");
     title.textContent = session.name;
@@ -230,8 +473,20 @@ function renderSessionList() {
     subtitle.classList.add("session-subtitle");
     subtitle.textContent = last ? (last.content.slice(0, 28) || "（空）") : "（未开始）";
 
-    item.appendChild(title);
-    item.appendChild(subtitle);
+    textWrap.appendChild(title);
+    textWrap.appendChild(subtitle);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.classList.add("session-delete");
+    deleteBtn.title = "删除会话";
+    deleteBtn.textContent = "×";
+    deleteBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteSession(session.id);
+    });
+
+    item.appendChild(textWrap);
+    item.appendChild(deleteBtn);
     item.addEventListener("click", () => switchSession(session.id));
     sessionListEl.appendChild(item);
   });
@@ -246,11 +501,35 @@ function switchSession(id) {
   renderHistory(id);
 }
 
+function deleteSession(id) {
+  const idx = sessions.findIndex((s) => s.id === id);
+  if (idx === -1) return;
+
+  const confirmDelete = sessions.length === 1 ? true : window.confirm("确定删除该会话？");
+  if (!confirmDelete) return;
+
+  const deletingCurrent = sessions[idx].id === currentSessionId;
+  sessions.splice(idx, 1);
+
+  if (!sessions.length) {
+    createNewSession(true);
+    return;
+  }
+
+  if (deletingCurrent) {
+    currentSessionId = sessions[sessions.length - 1].id;
+  }
+
+  saveSessions();
+  renderSessionList();
+  renderHistory(currentSessionId);
+}
+
 function renderHistory(sessionId) {
   const session = sessions.find((s) => s.id === sessionId);
   chatBox.innerHTML = "";
   if (!session) return;
-  session.history.forEach((msg) => displayMessage(msg.content, msg.sender));
+  session.history.forEach((msg) => displayParsedMessage(msg.content, msg.sender));
 }
 
 function appendHistory(sender, content) {
@@ -272,7 +551,7 @@ async function sendMessage(presetText, options = {}) {
   if (!text) return;
 
   if (showUser) {
-    displayMessage(text, "user");
+    displayParsedMessage(text, "user");
   }
   appendHistory("user", text);
   if (presetText === undefined) {
@@ -280,7 +559,11 @@ async function sendMessage(presetText, options = {}) {
   }
 
   // 展示思考过程，不覆写最终回复
-  const thinkingBubble = displayMessage("🤔 大模型正在思考...", "assistant");
+  const { wrapper: thinkingWrapper, message: thinkingMessage } = displayMessage(
+    "🤔 大模型正在思考...",
+    "assistant",
+    false
+  );
 
   try {
     const response = await fetch("/api/chat", {
@@ -294,26 +577,30 @@ async function sendMessage(presetText, options = {}) {
     }
 
     const data = await response.json();
-    const reply = data.reply || "没有收到回复。";
+    const reply = data.reply || data.response || "没有收到回复。";
+    const chartPayload = data.chart;
     const match = reply.match(/\*\*思考过程\*\*\s*([\s\S]*?)\n\s*\*\*最终回答\*\*\s*([\s\S]*)/);
 
     if (match) {
       const reasoning = match[1].trim();
       const finalAnswer = match[2].trim();
-      thinkingBubble.classList.add("reasoning");
-      streamIntoMessage(thinkingBubble, reasoning);
+      thinkingMessage.classList.add("reasoning");
+      streamIntoMessage(thinkingMessage, reasoning);
       appendHistory("assistant", `思考过程:\n${reasoning}`);
 
-      const finalBubble = displayMessage(finalAnswer, "assistant");
+      const finalBubble = displayParsedMessage(finalAnswer, "assistant", { chart: chartPayload });
       finalBubble.classList.add("final-answer");
       appendHistory("assistant", finalAnswer);
     } else {
-      streamIntoMessage(thinkingBubble, reply);
+      thinkingWrapper.remove();
+      const parsedBubble = displayParsedMessage(reply, "assistant", { chart: chartPayload });
+      parsedBubble.classList.add("final-answer");
       appendHistory("assistant", reply);
     }
   } catch (error) {
     const errMsg = `请求失败：${error.message}`;
-    thinkingBubble.innerHTML = renderMarkdown(errMsg);
+    const target = thinkingMessage.querySelector(".markdown-body") || thinkingMessage;
+    target.innerHTML = renderMarkdown(errMsg);
     appendHistory("assistant", errMsg);
     showToast(errMsg);
   }
@@ -321,10 +608,17 @@ async function sendMessage(presetText, options = {}) {
 
 sendButton.addEventListener("click", sendMessage);
 userInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
+  const composingNow = event.isComposing || event.keyCode === 229 || isComposing;
+  if (event.key === "Enter" && !composingNow) {
     event.preventDefault();
     sendMessage();
   }
+});
+userInput.addEventListener("compositionstart", () => {
+  isComposing = true;
+});
+userInput.addEventListener("compositionend", () => {
+  isComposing = false;
 });
 newChatBtn.addEventListener("click", () => createNewSession(true));
 toggleSidebarBtn.addEventListener("click", () => {

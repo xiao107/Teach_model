@@ -18,7 +18,7 @@
    ```
 3. 启动后端（默认 8000 端口）：
    ```bash
-   uvicorn backend.main:app --reload
+   uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 4. 打开浏览器访问 `http://localhost:8000/` 即可使用前端聊天界面。
 

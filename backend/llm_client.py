@@ -119,13 +119,52 @@ async def consume_stream_response(response: httpx.Response) -> str:
     return "".join(chunks)
 
 
+def extract_first_json_object(text: str) -> Optional[str]:
+    """
+    Scan `text` for the first balanced top-level JSON object (string-aware
+    brace matching). Returns the raw JSON substring, or None if not found.
+    Handles the common LLM failure mode: prose before/after a bare JSON blob.
+    """
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    try:
+                        if isinstance(json.loads(candidate), dict):
+                            return candidate
+                    except (json.JSONDecodeError, ValueError):
+                        break  # this { doesn't start a valid object; try next {
+        start = text.find("{", start + 1)
+    return None
+
+
 def parse_json_response(response: str) -> Tuple[Optional[Dict[str, Any]], str]:
     """
     Parse JSON from LLM response. Returns (json_data, cleaned_text).
     Handles:
     1. Direct JSON object
     2. JSON in markdown code blocks
-    3. Plain text (returns None, original_text)
+    3. Bare JSON object embedded in prose (prose + JSON without fences)
+    4. Plain text (returns None, original_text)
     """
     try:
         json_data = json.loads(response.strip())
@@ -146,5 +185,17 @@ def parse_json_response(response: str) -> Tuple[Optional[Dict[str, Any]], str]:
                     return json_data, cleaned_text
             except (json.JSONDecodeError, ValueError):
                 continue
+
+    # Case 3: bare JSON object mixed with prose (e.g. LLM writes an intro
+    # sentence before the JSON without wrapping it in a code fence).
+    raw = extract_first_json_object(response)
+    if raw:
+        try:
+            json_data = json.loads(raw)
+            if isinstance(json_data, dict):
+                cleaned_text = response.replace(raw, "").strip()
+                return json_data, cleaned_text
+        except (json.JSONDecodeError, ValueError):
+            pass
 
     return None, response

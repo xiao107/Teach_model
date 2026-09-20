@@ -57,14 +57,33 @@ def _build_messages(manager: ConversationManager, command: str, level_prompt: Op
 
 
 def _extract_actions(json_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Normalize single `action` or `actions[]` into a list of action dicts."""
+    """
+    Normalize supported shapes into a list of action dicts:
+      - {"actions": [{"action": "...", "params": {...}}, ...]}
+      - {"actions": ["split", "train"]}            (bare name strings)
+      - {"action": "...", "params": {...}}
+    """
     result: List[Dict[str, Any]] = []
-    if isinstance(json_data.get("actions"), list):
-        for item in json_data["actions"][: settings.agent_max_steps]:
-            if isinstance(item, dict) and item.get("action"):
-                result.append({"action": str(item["action"]), "params": item.get("params") or {}})
-    elif json_data.get("action"):
-        result.append({"action": str(json_data["action"]), "params": json_data.get("params") or {}})
+
+    def _normalize(item: Any) -> Optional[Dict[str, Any]]:
+        if isinstance(item, str) and item.strip():
+            return {"action": item.strip(), "params": {}}
+        if isinstance(item, dict):
+            name = item.get("action") or item.get("name") or item.get("type")
+            if name:
+                return {"action": str(name), "params": item.get("params") or {}}
+        return None
+
+    raw_actions = json_data.get("actions")
+    if isinstance(raw_actions, list):
+        for item in raw_actions[: settings.agent_max_steps]:
+            normalized = _normalize(item)
+            if normalized:
+                result.append(normalized)
+    else:
+        normalized = _normalize(json_data)
+        if normalized:
+            result.append(normalized)
     return result
 
 
@@ -93,6 +112,7 @@ async def process_user_command(
     final_reply = ""
     chart_payload: Optional[Dict[str, Any]] = None
     executed_steps: List[str] = []
+    executed_signatures: set = set()  # (action, params) dedup guard within one command
 
     try:
         for step in range(settings.agent_max_steps):
@@ -108,6 +128,10 @@ async def process_user_command(
 
             json_data, cleaned = _parse_json_response(response)
             if json_data is None:
+                logger.warning(
+                    "LLM round %d returned no parseable JSON (len=%d), treating as plain reply",
+                    step + 1, len(response),
+                )
                 final_reply = response.strip()
                 break
 
@@ -121,6 +145,17 @@ async def process_user_command(
             # ---- execute this group of actions ----
             executed: List[Dict[str, str]] = []
             for act in action_list:
+                signature = (
+                    act["action"],
+                    json.dumps(act.get("params") or {}, sort_keys=True, ensure_ascii=False),
+                )
+                if signature in executed_signatures:
+                    logger.info("Skipping duplicate action %s (already executed)", act["action"])
+                    executed.append(
+                        {"action": act["action"], "result": "（该动作在本次指令中已执行过，已自动跳过，结果见上文）"}
+                    )
+                    continue
+                executed_signatures.add(signature)
                 executed_steps.append(act["action"])
                 if on_delta is not None:
                     await on_delta("status", f"执行 {act['action']}")
@@ -137,8 +172,9 @@ async def process_user_command(
                 + "\n\n".join(
                     f"### {e['action']}\n{e['result'] or '（图表已生成）'}" for e in executed
                 )
-                + "\n\n请根据以上结果继续：若任务未完成，输出下一组 actions；"
-                "若已完成，输出总结性 reply（不要带 action）。"
+                + "\n\n以上动作已实际执行完毕，结果真实有效。请根据以上结果继续："
+                "若任务未完成，只输出**尚缺少的**下一组 actions（严禁重复执行上面已经"
+                "执行过并回填了结果的动作）；若已完成，输出总结性 reply（不要带 action）。"
             )
             messages = messages + [
                 {"role": "assistant", "content": json.dumps(json_data, ensure_ascii=False)},

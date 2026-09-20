@@ -3,47 +3,102 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeepSeek 数据助手</title>
-  <link rel="stylesheet" href="style.css?v=1">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+  <title>Teach_model · AI 学生教学平台</title>
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
-  <div class="app">
-    <header>
-      <div>
-        <p class="eyebrow">DeepSeek 驱动</p>
-        <h1>数据科学聊天助手</h1>
-        <p class="subtitle">加载数据、探索数据、获得指导，一切都在对话中完成。</p>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="menu-toggle" class="icon-btn" title="折叠/展开侧栏" aria-label="切换侧栏">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="brand">
+          <div class="brand-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/></svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-name">Teach_model</span>
+            <span class="brand-sub">AI 学生教学平台</span>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span id="topbar-title" class="topbar-title"></span>
+        <button id="export-chat-btn" class="ghost-btn" title="导出当前对话为 HTML">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>导出</span>
+        </button>
+        <button id="theme-toggle" class="icon-btn" title="切换深色模式" aria-label="切换深色模式">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="4.2" y1="4.2" x2="6.3" y2="6.3"/><line x1="17.7" y1="17.7" x2="19.8" y2="19.8"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.2" y1="19.8" x2="6.3" y2="17.7"/><line x1="17.7" y1="6.3" x2="19.8" y2="4.2"/></svg>
+        </button>
       </div>
     </header>
 
-    <div class="layout" id="layout">
+    <div class="layout">
       <aside class="sidebar" id="sidebar">
         <div class="sidebar-top">
-          <button id="toggle-sidebar" class="ghost-btn" title="折叠/展开侧栏">☰</button>
-          <button id="new-chat" class="primary-btn">
-            <span class="icon">＋</span>
-            <span class="label">新建对话</span>
+          <button id="new-chat-btn" class="new-chat-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>新建对话</span>
           </button>
         </div>
         <div class="session-list" id="session-list"></div>
+        <div class="sidebar-footer">AI 扮演学生 · 你来当老师</div>
       </aside>
+      <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
 
       <main class="chat-panel">
         <div id="chat-box" class="chat-box"></div>
-        <div class="input-row">
-          <input id="user-input" type="text" placeholder="向助手提问，例如：加载 Iris 数据集" autocomplete="off">
-          <button id="send-button">发送</button>
+
+        <div id="upload-status" class="upload-status" style="display:none;"></div>
+
+        <div class="composer">
+          <div class="input-capsule">
+            <input type="file" id="csv-file-input" accept=".csv" style="display:none;">
+            <button id="upload-csv-btn" class="capsule-btn" title="上传 CSV 数据集">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </button>
+            <div class="level-picker" id="level-picker">
+              <button id="level-picker-btn" class="capsule-btn level-btn" title="选择学生水平">
+                <span id="current-level-label">🌿</span>
+                <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div id="level-menu" class="level-menu" style="display:none;">
+                <div class="level-menu-title">学生水平</div>
+                <button class="level-option" data-level="beginner">
+                  <span class="level-icon">🌱</span>
+                  <span class="level-body"><b>初学者</b><i>需要详细解释每个步骤</i></span>
+                </button>
+                <button class="level-option active" data-level="intermediate">
+                  <span class="level-icon">🌿</span>
+                  <span class="level-body"><b>进阶者</b><i>了解基本概念与流程</i></span>
+                </button>
+                <button class="level-option" data-level="advanced">
+                  <span class="level-icon">🌳</span>
+                  <span class="level-body"><b>熟练者</b><i>能主动提出优化建议</i></span>
+                </button>
+              </div>
+            </div>
+            <textarea id="user-input" rows="1" placeholder="给 AI 学生下指令，例如：加载 iris 数据集"></textarea>
+            <button id="send-button" class="send-btn" title="发送">
+              <svg class="icon-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              <svg class="icon-stop" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+          </div>
+          <p class="composer-hint">Enter 发送 · Shift+Enter 换行 · 支持多步指令（如"检查并填充缺失值后训练随机森林"）</p>
         </div>
       </main>
     </div>
   </div>
 
   <div id="toast" class="toast"></div>
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-  <script src="app.js?v=1"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>

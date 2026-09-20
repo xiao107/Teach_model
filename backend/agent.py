@@ -149,10 +149,6 @@ async def process_user_command(
 
         if not final_reply:
             final_reply = "老师，这一轮的操作已经完成。"
-        if executed_steps:
-            final_reply += (
-                f"\n\n> 🧾 本次共执行 {len(executed_steps)} 步：{' → '.join(executed_steps)}"
-            )
 
         manager.add_message("assistant", final_reply)
         result: Dict[str, Any] = {"reply": final_reply, "steps": executed_steps}

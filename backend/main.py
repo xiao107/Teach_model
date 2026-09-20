@@ -312,9 +312,10 @@ async def chat_stream_endpoint(request: ChatRequest):
                     break
                 if event == "status":
                     yield f"event: status\ndata: {json.dumps({'message': text}, ensure_ascii=False)}\n\n"
+                elif event in ("final", "error"):
+                    yield f"event: {event}\ndata: {text}\n\n"  # already JSON-encoded
                 else:
-                    payload = text.replace("\n", "\\n") if event == "delta" else text
-                    yield f"event: {event}\ndata: {json.dumps({'text': payload}, ensure_ascii=False)}\n\n"
+                    yield f"event: {event}\ndata: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
         finally:
             runner.cancel()
 

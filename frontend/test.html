@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>API Connection Test</h1>
+    <button onclick="testChat()">Test Chat API</button>
+    <button onclick="testUpload()">Test Upload API</button>
+    <pre id="result"></pre>
+
+    <script>
+        async function testChat() {
+            const result = document.getElementById('result');
+            result.textContent = 'Testing chat API...';
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: 'test-session',
+                        message: '你好'
+                    })
+                });
+                
+                const data = await response.json();
+                result.textContent = 'Chat API Response:\n' + JSON.stringify(data, null, 2);
+            } catch (error) {
+                result.textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function testUpload() {
+            const result = document.getElementById('result');
+            result.textContent = 'Testing upload API...';
+            
+            const csvContent = 'name,age\nAlice,25\nBob,30';
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: 'test-session',
+                        message: '请分析这个CSV文件',
+                        uploaded_file_data: csvContent
+                    })
+                });
+                
+                const data = await response.json();
+                result.textContent = 'Upload API Response:\n' + JSON.stringify(data, null, 2);
+            } catch (error) {
+                result.textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

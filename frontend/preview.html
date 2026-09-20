@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UI Preview</title>
+  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+</head>
+<body>
+  <div class="app">
+    <header class="tech-header">
+      <div class="header-content">
+        <div class="logo-section">
+          <div class="logo-icon">
+            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#1a73e8;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#8e44ad;stop-opacity:1" />
+                </linearGradient>
+              </defs>
+              <circle cx="50" cy="50" r="40" fill="none" stroke="url(#logoGrad)" stroke-width="4"/>
+              <path d="M35 50 L50 35 L65 50 L50 65 Z" fill="url(#logoGrad)" opacity="0.8"/>
+              <circle cx="50" cy="50" r="6" fill="#1a73e8"/>
+            </svg>
+          </div>
+          <div class="logo-text">
+            <h1 class="main-title">DeepSeek<span class="title-accent"> 数据助手</span></h1>
+            <p class="subtitle">UI预览 - 紧凑布局</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="layout" style="grid-template-columns: 1fr;">
+      <main class="chat-panel tech-panel">
+        <div class="chat-box">
+          <!-- User Message -->
+          <div class="message-wrapper user">
+            <div class="message-actions">
+              <button class="copy-btn" title="复制">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M9 6.5C9 5.67157 9.67157 5 10.5 5H17.5C18.3284 5 19 5.67157 19 6.5V17.5C19 18.3284 18.3284 19 17.5 19H10.5C9.67157 19 9 18.3284 9 17.5V6.5Z" stroke="currentColor" stroke-width="1.4"/>
+                  <path d="M6.5 8.5H6C5.17157 8.5 4.5 9.17157 4.5 10V18C4.5 18.8284 5.17157 19.5 6 19.5H14C14.8284 19.5 15.5 18.8284 15.5 18V17.5" stroke="currentColor" stroke-width="1.4"/>
+                </svg>
+              </button>
+            </div>
+            <div class="message user">
+              <div class="markdown-body">
+                <p>你好，请帮我分析数据</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Assistant Message -->
+          <div class="message-wrapper assistant">
+            <div class="message assistant">
+              <div class="thought-section">
+                <button class="thought-header">
+                  <svg class="thought-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                  </svg>
+                  <span>显示思路</span>
+                </button>
+                <div class="thought-content" style="display: none;">
+                  <p>老师好，我需要先了解当前的状态。目前还没有加载数据，我应该询问老师想从哪里开始。</p>
+                </div>
+              </div>
+              <div class="reply-section markdown-body">
+                <p>老师好！我是您的机器学习学生，目前还没有加载任何数据。</p>
+                <p>请问您想让我从哪个数据集开始学习？</p>
+                <ul>
+                  <li><strong>Iris</strong> - 鸢尾花数据集</li>
+                  <li><strong>Wine</strong> - 葡萄酒数据集</li>
+                  <li><strong>Breast Cancer</strong> - 乳腺癌数据集</li>
+                </ul>
+              </div>
+            </div>
+            <div class="message-actions">
+              <button class="copy-btn" title="复制">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M9 6.5C9 5.67157 9.67157 5 10.5 5H17.5C18.3284 5 19 5.67157 19 6.5V17.5C19 18.3284 18.3284 19 17.5 19H10.5C9.67157 19 9 18.3284 9 17.5V6.5Z" stroke="currentColor" stroke-width="1.4"/>
+                  <path d="M6.5 8.5H6C5.17157 8.5 4.5 9.17157 4.5 10V18C4.5 18.8284 5.17157 19.5 6 19.5H14C14.8284 19.5 15.5 18.8284 15.5 18V17.5" stroke="currentColor" stroke-width="1.4"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="input-container">
+          <div class="input-wrapper">
+            <button class="icon-upload-btn" title="上传CSV文件">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+
+            <div class="input-field-wrapper">
+              <input type="text" class="tech-input" placeholder="输入问题或指令">
+            </div>
+
+            <button class="tech-send-btn" title="发送">
+              <svg class="send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    // Add click handlers
+    document.querySelectorAll('.thought-header').forEach((header) => {
+      header.addEventListener('click', () => {
+        const content = header.nextElementSibling;
+        const isExpanded = content.style.display !== 'none';
+        content.style.display = isExpanded ? 'none' : 'block';
+        header.classList.toggle('expanded', !isExpanded);
+      });
+    });
+  </script>
+</body>
+</html>

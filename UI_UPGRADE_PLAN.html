@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="T1tyal3J63gXawrGG2Z4QE">
+<head data-page-node-id="5DdbWjzoEZH1f6Kvo20MRj">
+<meta charset="UTF-8" data-page-node-id="nchwTXlu5mKjjt814zs9Ek">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="Qoo5r3sWULzflZIBGvnp2q">
+<title>Tech LLM 页面精美化升级方案</title>
+<style>
+:root {
+  --brand-a: #4f7cff;
+  --brand-b: #8b5cf6;
+  --ink-1: #171923;
+  --ink-2: #5c6470;
+  --ink-3: #9aa3af;
+  --line: #e9edf2;
+  --page: #f6f8fb;
+  --card: #ffffff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--page);
+  color: var(--ink-1);
+  line-height: 1.7;
+  padding: 40px 24px 80px;
+}
+.wrap { max-width: 960px; margin: 0 auto; }
+h1 { font-size: 26px; letter-spacing: -0.02em; }
+.sub { color: var(--ink-2); font-size: 14px; margin: 6px 0 32px; }
+h2 { font-size: 18px; margin: 40px 0 14px; letter-spacing: -0.01em; }
+h2 .no {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; margin-right: 8px;
+  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  color: #fff; font-size: 13px; vertical-align: -4px;
+}
+.desc { color: var(--ink-2); font-size: 14px; margin-bottom: 14px; }
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 16px; padding: 22px;
+}
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.tag {
+  display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 999px;
+  background: #eef2ff; color: #4f46e5; margin-right: 6px;
+}
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-2); font-weight: 500; background: #fafbfd; }
+tr:last-child td { border-bottom: none; }
+
+/* ===== 展示区：升级后的界面预览 ===== */
+.preview {
+  border-radius: 18px; overflow: hidden; border: 1px solid var(--line);
+  box-shadow: 0 12px 40px rgba(23, 25, 35, 0.08);
+  background: #fff;
+}
+.pv-top {
+  height: 52px; display: flex; align-items: center; gap: 12px;
+  padding: 0 18px; border-bottom: 1px solid var(--line);
+  background: rgba(255,255,255,0.85); backdrop-filter: blur(12px);
+}
+.pv-logo {
+  width: 26px; height: 26px; border-radius: 9px;
+  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 13px; font-weight: 600;
+}
+.pv-title { font-size: 14px; font-weight: 600; }
+.pv-badge {
+  margin-left: auto; font-size: 12px; color: #4f46e5;
+  background: #eef2ff; border-radius: 999px; padding: 3px 12px;
+}
+.pv-body { display: flex; min-height: 420px; }
+.pv-side {
+  width: 216px; background: #f9fafc; border-right: 1px solid var(--line);
+  padding: 12px 10px; display: flex; flex-direction: column; gap: 4px;
+}
+.pv-new {
+  border: none; border-radius: 12px; padding: 10px;
+  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  color: #fff; font-size: 13px; font-weight: 500; margin-bottom: 10px;
+}
+.pv-group { font-size: 11px; color: var(--ink-3); padding: 8px 8px 2px; }
+.pv-item {
+  display: flex; align-items: center; gap: 9px; padding: 9px 10px;
+  border-radius: 11px; font-size: 13px; color: var(--ink-2); position: relative;
+}
+.pv-item.on { background: #eef2ff; color: #3730a3; }
+.pv-item.on::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 2px; background: linear-gradient(180deg, var(--brand-a), var(--brand-b));
+}
+.pv-dot {
+  width: 28px; height: 28px; border-radius: 9px; background: #fff;
+  border: 1px solid var(--line); display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+}
+.pv-item.on .pv-dot { border: none; background: #e0e7ff; }
+.pv-chat { flex: 1; display: flex; flex-direction: column; background:
+  radial-gradient(1200px 400px at 80% -100px, rgba(139,92,246,0.06), transparent),
+  radial-gradient(1000px 380px at 10% 110%, rgba(79,124,255,0.05), transparent), #fff;
+}
+.pv-msgs { flex: 1; padding: 20px 26px; display: flex; flex-direction: column; gap: 16px; }
+.pv-row { display: flex; gap: 10px; }
+.pv-row.me { flex-direction: row-reverse; }
+.pv-ava {
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600;
+}
+.pv-ava.ai {
+  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  color: #fff;
+}
+.pv-ava.tea { background: #eef1f5; color: var(--ink-2); }
+.pv-bubble {
+  max-width: 72%; font-size: 13.5px; line-height: 1.7; padding: 10px 15px;
+}
+.pv-row.me .pv-bubble {
+  background: linear-gradient(135deg, #eef2ff, #f3efff);
+  border: 1px solid #e3e8ff; border-radius: 14px 14px 4px 14px; color: #3730a3;
+}
+.pv-row.ai .pv-bubble {
+  background: #fff; border: 1px solid var(--line); border-radius: 4px 14px 14px 14px;
+  box-shadow: 0 1px 3px rgba(23,25,35,0.05);
+}
+.pv-chart {
+  margin-top: 8px; border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; font-size: 12px; color: var(--ink-2);
+  background: linear-gradient(180deg, #fbfcfe, #f7f9fc);
+  display: flex; align-items: center; gap: 10px;
+}
+.pv-bars { display: flex; align-items: flex-end; gap: 5px; height: 40px; }
+.pv-bars i {
+  width: 12px; border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, var(--brand-a), var(--brand-b)); opacity: .85;
+}
+.pv-input {
+  margin: 0 26px 20px; border-radius: 22px; border: 1px solid #dfe4ec;
+  padding: 8px 10px; display: flex; align-items: center; gap: 8px;
+  background: #fff; box-shadow: 0 4px 18px rgba(23,25,35,0.06);
+}
+.pv-chip {
+  font-size: 12px; padding: 5px 12px; border-radius: 999px; flex-shrink: 0;
+  background: linear-gradient(135deg, #eef2ff, #f3efff); color: #4f46e5;
+}
+.pv-ph { flex: 1; color: var(--ink-3); font-size: 13px; }
+.pv-send {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
+  display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px;
+}
+
+/* 色板 */
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; }
+.sw { border-radius: 12px; padding: 12px; width: 118px; color: #fff; font-size: 12px; }
+.sw span { display: block; opacity: .85; font-size: 11px; }
+
+/* 对比 */
+.beforeafter { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ba {
+  border-radius: 14px; padding: 16px; font-size: 13px; line-height: 1.8;
+}
+.ba.before { background: #f4f5f7; color: var(--ink-2); }
+.ba.after {
+  background: linear-gradient(135deg, #eef2ff, #faf5ff);
+  border: 1px solid #e3e8ff; color: #3730a3;
+}
+@media (max-width: 760px) { .beforeafter { grid-template-columns: 1fr; } .pv-side { display: none; } }
+</style>
+</head>
+<body data-page-node-id="DGFTlbxaVnN1Sj3vdeL2ch">
+<div class="wrap" data-page-node-id="Wh3mJi5g8NYEG0KnjDxbWH">
+  <h1 data-page-node-id="drKDOZEH7pV0lhAVBl0ByG">Tech LLM 页面精美化升级方案</h1>
+  <p class="sub" data-page-node-id="F6AmWU6SDCCuvMxqQPfdps">基于本轮已完成的协调性重构（tokens / 高度体系 / 侧边栏 / 欢迎页），下一阶段向"精致产品级"视觉升级。下图为应用升级后的整体效果预览。</p>
+
+  <h2 data-page-node-id="oDKZdjm3kemBmeVgpZvwMw"><span class="no" data-page-node-id="wJiXCjEiJtBeIJDfIsFXDI">0</span>升级后整体效果预览</h2>
+  <div class="preview" data-page-node-id="RwdXuPn3VZl0s6o9kEOyDg">
+    <div class="pv-top" data-page-node-id="6ptkEGQ53mpGUDxnMubsdk">
+      <span class="pv-logo" data-page-node-id="9QP5Hi6cZQegGUP7Nt4bIM">T</span>
+      <span class="pv-title" data-page-node-id="CT4sjikrqoVdv8vkBgST64">Tech LLM</span>
+      <span class="pv-badge" data-page-node-id="LoekybyFpoDWR4aPoqxLEm">DeepSeek · 数据加载</span>
+    </div>
+    <div class="pv-body" data-page-node-id="lp95OFBuwHkAbZPorIEF1M">
+      <div class="pv-side" data-page-node-id="vu9CvsHa4qRA9iifhHnwcu">
+        <button class="pv-new" data-page-node-id="KzWmVKRBQQYk5pnAFNLtDx">＋ 新建对话</button>
+        <div class="pv-group" data-page-node-id="jxDFrHa9ELb50zJSzVmCzo">今天</div>
+        <div class="pv-item on" data-page-node-id="cGY7RwiU7zjwLuVlE8prjy"><span class="pv-dot" data-page-node-id="qESOwYVvKvlBE00OwhSD6v">📊</span>iris 分类入门</div>
+        <div class="pv-item" data-page-node-id="49PRE0NmtHABlRaJ05ZoDR"><span class="pv-dot" data-page-node-id="CcA5DVFIygvd6KScalB1Gn">🌲</span>随机森林对比实验</div>
+        <div class="pv-group" data-page-node-id="yxg14SqdPzbV5rOjHFSzdN">昨天</div>
+        <div class="pv-item" data-page-node-id="IJb64U4re9GPIQMIjHgE4n"><span class="pv-dot" data-page-node-id="s8pSHHdghJLoDTJkKi5tUW">🏠</span>房价回归练习</div>
+      </div>
+      <div class="pv-chat" data-page-node-id="V14F0QPTSVrwoIKZ9SXxJz">
+        <div class="pv-msgs" data-page-node-id="lm9kStyqAVo3TaEJooZxHN">
+          <div class="pv-row me" data-page-node-id="edagZfm4xwWTGjoaH7G1sE">
+            <span class="pv-ava tea" data-page-node-id="tMw34iOztf9HpoZekEJGSi">师</span>
+            <div class="pv-bubble" data-page-node-id="hkhb3FWIUTnpoKCZgvAJne">帮我看看花萼长度和种类的关系统计一下</div>
+          </div>
+          <div class="pv-row ai" data-page-node-id="u3ikKjm8VjClrDjV4XWbLC">
+            <span class="pv-ava ai" data-page-node-id="COgjbLoX89kumSX6D26TMd">AI</span>
+            <div class="pv-bubble" data-page-node-id="ao37vCSmGhLqZbSjKZdDb5">
+              好的老师！我统计好了：setosa 的花萼明显更短，三类的均值差异很清晰～
+              <div class="pv-chart" data-page-node-id="awPCzZAIzFjZB2Siznb94p">
+                <span class="pv-bars" data-page-node-id="nSAyfqBrxWAhADhsQZkU2O"><i style="height:16px" data-page-node-id="2VMXG7yKoIMtTfii1gMKwt"></i><i style="height:26px" data-page-node-id="CkSMxXJRqJJANXStX4Eu1B"></i><i style="height:38px" data-page-node-id="QoQE6Q1t1bOrehGsVhfgUg"></i><i style="height:22px" data-page-node-id="CX0Aw0wFfuVbCza7H8JqpJ"></i><i style="height:32px" data-page-node-id="jnruMXEGEig3SGuA6qL03k"></i><i style="height:40px" data-page-node-id="2C24Mktt3R1UuMECodkoaJ"></i></span>
+                图 1 · 花萼长度分布（按物种分组） · 150 条样本
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="pv-input" data-page-node-id="J0n1aQ7DD0bHAFRxlk34Ep">
+          <span class="pv-chip" data-page-node-id="RkhK0t7lqQwwMmIEcPmMnw">🌿 进阶者</span>
+          <span class="pv-ph" data-page-node-id="vg1QTD1V8zOeS3g5Z9qdrK">输入问题或指令…</span>
+          <span class="pv-send" data-page-node-id="RjJvnzK0tlq1n2DGgAuR53">➤</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 data-page-node-id="6kKK6Oc4clSuzNAExboX5L"><span class="no" data-page-node-id="UHp86yknAfe4TSEXcM7yjZ">1</span>品牌化视觉主题（-gradient Design）</h2>
+  <p class="desc" data-page-node-id="r6rDExNEOwU9zI9wHScUuj">当前是单一蓝色。升级为「品牌渐变 + 双色系」体系，让产品有记忆点，同时保持克制：</p>
+  <div class="card" data-page-node-id="BnZQSoMCDkdhU10qogFtHJ">
+    <div class="swatches" data-page-node-id="mgl11CEluhildlNdluxm31">
+      <div class="sw" style="background:linear-gradient(135deg,#4f7cff,#8b5cf6)" data-page-node-id="cMppE98cbO2Yb1gqfqT4Kp">品牌渐变<span data-page-node-id="cBrQndQH2ugbo3OmCMqcsr">#4F7CFF → #8B5CF6</span></div>
+      <div class="sw" style="background:#4f7cff" data-page-node-id="lKyBDAJhQDfHLRaaEbUxxb">主色<span data-page-node-id="J7ieDuQLnTKhSqbiSU7uZD">#4F7CFF</span></div>
+      <div class="sw" style="background:#8b5cf6" data-page-node-id="xMFhYeFTpsDJEATxNPUNTp">辅色<span data-page-node-id="iItux0IC6x1WvOli5RhyWm">#8B5CF6</span></div>
+      <div class="sw" style="background:#0ea5a4" data-page-node-id="nzzhA6w4F85y73ZSQEr7qE">数据青<span data-page-node-id="TxKLnIpso11RGMND1EANBb">#0EA5A4</span></div>
+      <div class="sw" style="background:#f59e0b" data-page-node-id="poGS6L3464W9KyrlJqZOGp">强调橙<span data-page-node-id="6Rq6eUniyPHYVxMg4CfKfB">#F59E0B</span></div>
+    </div>
+    <p class="desc" style="margin-top:14px" data-page-node-id="vKZE5gmo0hsDABE4g55R9C">应用位置：Logo、"新建对话"按钮、发送按钮、AI 头像、active 指示条、欢迎页标题。渐变只用于"品牌触点"，大面积界面仍保持中性色。</p>
+  </div>
+
+  <h2 data-page-node-id="eWlN3TDzUFVSFMVCqiOaGR"><span class="no" data-page-node-id="5C3ArDKXn6HMufbx2IX4Km">2</span>AI 回复卡片化 + 深色代码主题</h2>
+  <p class="desc" data-page-node-id="ugGoYdDjOQA46IpzgkKuVt">助手回复从"纯透明文本"升级为轻卡片；代码块切换为深色主题（与 highlight.js 的 github-dark 配套），形成"聊天浅色 / 代码深色"的层次对比。</p>
+  <div class="card" data-page-node-id="drL2SohxWb7zNJVka7Fagg"><table data-page-node-id="OCbusBUDBeFm4IcAxGHRxa">
+    <tr data-page-node-id="TuWaGFe10yXODkj5pUNbmH"><th data-page-node-id="0p87CSiFpQhitGErxsRl0A">元素</th><th data-page-node-id="yklIPz3HAQwgDYA5jxP7ki">现状</th><th data-page-node-id="iMlhBkazRuxfpUzZYGo5XU">升级后</th></tr>
+    <tr data-page-node-id="06X6CiwnqcDTOdNXLyv4h4"><td data-page-node-id="LmqXEhSSGjwqUdKcdWBZIn">AI 回复容器</td><td data-page-node-id="mHsPMijbfypx4WweXUbyzw">透明无边框</td><td data-page-node-id="TveoEbS2XBWse4Yi7gUHOa">白卡片 + 1px 边框 + 极浅投影</td></tr>
+    <tr data-page-node-id="uZhIG64DWVZTl7K69GFsgi"><td data-page-node-id="QNwOQsF3fxeujorqHt6BSs">代码块</td><td data-page-node-id="rrTrAwrgGhFPrXp3aRcG2J">浅灰底浅色高亮</td><td data-page-node-id="yxULhPpI2Lw9C3GCEIvAlX">#0D1117 深底 + github-dark 高亮 + 语言标签角标</td></tr>
+    <tr data-page-node-id="TBInvjAQ4cXWKvDEVvahKU"><td data-page-node-id="ubvWSS9wb6jEqiaGeaDaAz">行内代码</td><td data-page-node-id="u2GxxSOe8LC9N6TAhJF35c">浅灰</td><td data-page-node-id="J10Y2M15bHS4A62Yh9Etcv">淡紫底（呼应品牌辅色）</td></tr>
+    <tr data-page-node-id="VMhemmXl5BGHEXNe6AyUuZ"><td data-page-node-id="GyIcyUObdsHMAKTCHlOqVU">表格</td><td data-page-node-id="SVyc99YvRpJ8Hr35MHMgTH">白底灰线</td><td data-page-node-id="fHBk6PA2RbrWFr4UVGWCRR">表头渐变浅底 + 斑马纹 + 圆角阴影</td></tr>
+  </table></div>
+
+  <h2 data-page-node-id="kUckUg2Dw8iqJeBsaDsngo"><span class="no" data-page-node-id="ZuzXD6mr1z9I4alhXM2rQq">3</span>ECharts 图表主题统一</h2>
+  <p class="desc" data-page-node-id="guEFspKkDRWr5JYTBElrlE">当前图表用 ECharts 默认配色，与界面脱节。注册全局自定义主题：</p>
+  <div class="card" data-page-node-id="qnOmA9noXSCJG7NTBMyFRX"><table data-page-node-id="N8Tx41OEQvDctlPWLEXEWO">
+    <tr data-page-node-id="q5VDECMWpAxZTQHFGeBqbH"><th data-page-node-id="LaAizRA8GanxlSGJ6I5a21">项</th><th data-page-node-id="NFSNxtySZhZFAQcy4f7WPt">方案</th></tr>
+    <tr data-page-node-id="TKo6Pixu0oB9uDPDHxbBGG"><td data-page-node-id="gKfIODgrtihKtgtFUlkqHw">色板</td><td data-page-node-id="YrutLDFX1a4O8tp4Cl1Pze">[#4F7CFF, #8B5CF6, #0EA5A4, #F59E0B, #EC4899]，分类图按序取色</td></tr>
+    <tr data-page-node-id="CsUAPfdwEwsjbqH2VtPaHT"><td data-page-node-id="xPfQKAxcQQRnbbBLrVfTQC">网格线</td><td data-page-node-id="aenEEFmNVYAHY9prrYgF9B">#EEF1F5 虚线，隐藏外框</td></tr>
+    <tr data-page-node-id="axyL1PAfZNTiFjAdaR0PT7"><td data-page-node-id="neUkfg35VGHDyIARwL1ANj">字体</td><td data-page-node-id="ynEtcVfBA5kDE58DI1y1xL">继承界面字体栈，轴标签 12px #5C6470</td></tr>
+    <tr data-page-node-id="M8FVtteQQui10Q9Znt0Vqq"><td data-page-node-id="Td17djRyb6nx1VGvIYFwLH">柱/条</td><td data-page-node-id="mXo9fyggzIgg4ourWeNDzI">顶部圆角 [6,6,0,0]，渐变填充（上深下浅）</td></tr>
+    <tr data-page-node-id="UBXcJHn4s903lBIwXIAcH3"><td data-page-node-id="ck7XkwVCyZVXDePbQhOsmJ">tooltip</td><td data-page-node-id="rnqDP6gSCfqUsISCuVrybb">白底、圆角 10px、品牌色轴指示线</td></tr>
+    <tr data-page-node-id="lKNNFejToCDF02D3qruNjF"><td data-page-node-id="6aygevSD09bGDlL2lD5vZJ">入场动画</td><td data-page-node-id="g0jsAtneriAtaB77mEYXeE">animationDuration 600ms + cubicOut（与消息入场节奏一致）</td></tr>
+  </table></div>
+
+  <h2 data-page-node-id="XhDeRACFwvP5wAQ8WGXZ0C"><span class="no" data-page-node-id="sFfcqk2INLCleK0XHpeMsp">4</span>微交互与动效</h2>
+  <div class="grid" data-page-node-id="qqHFBHb9IlHJckQN96biaZ">
+    <div class="card" data-page-node-id="5VpWB0NRMy2z5nvK9HrSCK"><span class="tag" data-page-node-id="HNaOt7dPuY4aRAdJHA4lhB">消息</span><p class="desc" style="margin:8px 0 0" data-page-node-id="Aj8D8dvmugqg1dHvYgE3kK">流式输出时打字机光标闪烁；完成后气泡轻微 settle 动画（scale 0.99→1）</p></div>
+    <div class="card" data-page-node-id="J5ecJ4Dsxc11H3ldWN2rMo"><span class="tag" data-page-node-id="uh341CGR2hCXR4lekhCfmj">按钮</span><p class="desc" style="margin:8px 0 0" data-page-node-id="ik8oAHqBJvPf7I4vtYpo8i">发送按钮 hover 轻微放大 + 渐变位移；点击涟漪；发送中变为"停止"方块</p></div>
+    <div class="card" data-page-node-id="FG1kvBJxOAJv8Q3wDGR83a"><span class="tag" data-page-node-id="aMUWOgpcKyFNH3Fg7Y2zlB">加载</span><p class="desc" style="margin:8px 0 0" data-page-node-id="gIPXrFN5ER5WhC4V3nSkDX">等待首 token 时显示三点跳动 + "正在思考"渐隐轮换，替代静态文本</p></div>
+    <div class="card" data-page-node-id="P4y6NO0k0fd7nkAp5iijnd"><span class="tag" data-page-node-id="WqmemPwfGfLPVgJ2znJ7xh">侧边栏</span><p class="desc" style="margin:8px 0 0" data-page-node-id="8LOhxaiEENaocNK2tO317a">会话项 hover 时图标微弹（translateX 2px）；删除按钮旋转入场</p></div>
+  </div>
+
+  <h2 data-page-node-id="2VZ8yacbMdj7sNR7NfgWu0"><span class="no" data-page-node-id="N4qC7Ils3v9DRfFD5iFAuz">5</span>欢迎页 Hero 升级</h2>
+  <div class="beforeafter" data-page-node-id="ANbjAscewECtauBlQVNDGL">
+    <div class="ba before" data-page-node-id="oK5PhbCIJJun14An8UaFt9"><strong data-page-node-id="OwFLR2q2Y4aop60yBL5OcH">现状</strong><br data-page-node-id="bk0u0jz5DSjam2KL6oJbc9">静态 logo + 文本 + 三个白底示例条。干净但平淡，缺少"教学平台"的氛围感。</div>
+    <div class="ba after" data-page-node-id="41MrLUwveNEwHcnySRKWo2"><strong data-page-node-id="G9OC9rXM6MpL93aDO9gXOa">升级后</strong><br data-page-node-id="AYUgtON6m74ptLqY1547dm">① 背景加极淡的双色 radial 光晕（品牌渐变 5% 透明度）<br data-page-node-id="0w2GAv39H9sLIK95PeoTM6">② Logo 加呼吸动画 + 渐变描边<br data-page-node-id="grVqKnDeuLU6kgJDXsI3sY">③ 标题"AI 学生"四字用渐变文字<br data-page-node-id="pUEXJigHLwrBdD4pWfyp4h">④ 示例条左侧加彩色图标徽章、hover 时箭头滑动</div>
+  </div>
+
+  <h2 data-page-node-id="tMfvSqb3elMekZnT8DxG7n"><span class="no" data-page-node-id="MtcT6eADxFxKkB3m307lXF">6</span>暗色模式</h2>
+  <p class="desc" data-page-node-id="BLBrRv3ovE5OHeMKyhfjSk">tokens 已就绪，成本最低的高级感来源。新增 <code data-page-node-id="qkeE13NIrRVMXpfH9SRuEH">[data-theme="dark"]</code> 变量组（背景 #0F1115 / 卡片 #171A21 / 边框 #262B36 / 文字 #E6E9EF），顶栏加"月亮/太阳"切换按钮，跟随系统 + 手动覆盖 + localStorage 记忆。图表主题同步注册 dark 变体。</p>
+
+  <h2 data-page-node-id="ahJeYgFpnoyWrFJudVMFUa"><span class="no" data-page-node-id="eEYsG89DgtMzGhh1fTCBvM">7</span>细节打磨清单</h2>
+  <div class="card" data-page-node-id="3S37TM39NYw3H2lpRYvccJ"><table data-page-node-id="DMMioi5GoZw5oyOAcVty4E">
+    <tr data-page-node-id="RTAXF8keEA8zOcEKtKyDRL"><th data-page-node-id="57VtmMI9IF5Wqa5hAJQn5c">细节</th><th data-page-node-id="yZlHbzp2bqDobfHhhOUUES">做法</th></tr>
+    <tr data-page-node-id="BRufZcAcGgg2BjqAzjDBHJ"><td data-page-node-id="km29EQZmTkoNJsdKjFPXK8">空数据插图</td><td data-page-node-id="fr1DoniVKwFUpLG3jbZaWu">欢迎页与会话列表空态配轻量 SVG 插画（虚线圆 + 漂浮数据点）</td></tr>
+    <tr data-page-node-id="p21qL6CkHy3NLHglANuo84"><td data-page-node-id="7z19G1FF3vVKDk8Y0tLjZm">滚动条</td><td data-page-node-id="4gxsABTJh2GzlDpHiLwGwf">hover 区才显形的悬浮式细滚动条</td></tr>
+    <tr data-page-node-id="1hx86SuWnrkPF4h9gmrp9A"><td data-page-node-id="3Cu4xGVAeCyyks3gRJ30mQ">骨架屏</td><td data-page-node-id="jUI94IJMcSAc0Vc470cCKU">历史会话加载时先渲染灰块骨架，避免闪烁</td></tr>
+    <tr data-page-node-id="DqK8cGW68rzhLj1yn7MZFg"><td data-page-node-id="mNeU1QliPfDnfyJCr456LO">favicon</td><td data-page-node-id="e5BQ7pOa6SsTHYN0icFYqk">补一个渐变菱形 SVG favicon（当前没有）</td></tr>
+    <tr data-page-node-id="RqLaxGjq42eDLYfKB930tW"><td data-page-node-id="u6mjoxG92rjJWzhBqOxl6l">打印/导出</td><td data-page-node-id="butZVPr3EuDElLKzVBx6P0">对话支持导出为带样式的 HTML/PDF</td></tr>
+    <tr data-page-node-id="kBJVDoPO0oEYyaIPnnRWy0"><td data-page-node-id="7HDlnQmooMgdpE5cEv4dJy">a11y</td><td data-page-node-id="kvyEwSRzMhnwFb3gJA5bSX">焦点环统一 2px 品牌色、对比度过 WCAG AA</td></tr>
+  </table></div>
+
+  <h2 data-page-node-id="luthLvM7uv3HWSC1JJd9bX"><span class="no" data-page-node-id="y7rToQryURuSFNXNAZNNSi">8</span>实施顺序建议</h2>
+  <div class="card" data-page-node-id="uctXfjcLJLeGzx2sa8Hhfa">
+    <table data-page-node-id="CiTbbWIDJvnC69IEPE3DMi">
+      <tr data-page-node-id="MiblF8EFvtYZDO6o3KdAX2"><th data-page-node-id="kFUzItUgyvhQaWatef9iWT">#</th><th data-page-node-id="jldap5V8M6iCmB4hs6VLM4">内容</th><th data-page-node-id="alBa0Qx3yAQnnArLOSIJuo">工作量</th><th data-page-node-id="5Goc4gyeuxeJM1RpmxNkYU">感知度</th></tr>
+      <tr data-page-node-id="mYqtZJxS7DLawh1w1tIPVr"><td data-page-node-id="8che8NBfDN8tQBmhUZKbbu">1</td><td data-page-node-id="o5rT36WjBmt0M30TSaWaUH">品牌渐变主题 + 按钮/头像/指示条换装</td><td data-page-node-id="8tUmfWMqDggrCwsNv2yIqJ">小</td><td data-page-node-id="CAA2g4njUB4bBD12f2BVbc">高</td></tr>
+      <tr data-page-node-id="JE9LMV5AQcHynongSkYaNY"><td data-page-node-id="ZitOJcmnceX3nWJeIJcXke">2</td><td data-page-node-id="QsmARwkaBj1jXLTFGdS8g7">ECharts 自定义主题</td><td data-page-node-id="n12Gj3CAQ2Z4rrhHQc9UAT">小</td><td data-page-node-id="m3JInYOYGYAOwI9U5AACaN">高</td></tr>
+      <tr data-page-node-id="ErfQ4y3OmDy5ete8osRCVA"><td data-page-node-id="xMAKM7wGHNOZqzugWv1tfn">3</td><td data-page-node-id="tIwqQYunPfoUDJuklWl7sB">AI 回复卡片化 + 深色代码主题</td><td data-page-node-id="nsWXHPM9nesmmJRdCfOW2W">中</td><td data-page-node-id="c1QXIJQagDpG0KYhbl8B4j">高</td></tr>
+      <tr data-page-node-id="wSOGa2Jfwch9PJeOMhrkEN"><td data-page-node-id="Zr48iuFqIL9okt1E9aHL7c">4</td><td data-page-node-id="uwnWTKLE6UzARthrGbw3Ni">欢迎页 Hero 升级</td><td data-page-node-id="WnrFgfTman0PPx9HQF0ZG1">小</td><td data-page-node-id="K2lXoYTK4nA0XY8gRG0vTP">中</td></tr>
+      <tr data-page-node-id="jf6hAXKYXc66jaMAUMBIM2"><td data-page-node-id="d4OIYV149CAwhSg1xibgmc">5</td><td data-page-node-id="Mkn0T6Z7iqnu7HM0m7S82t">微交互动效包</td><td data-page-node-id="Iq1WAxl7W6d2gCrEQpQoNQ">中</td><td data-page-node-id="hpNdK57ydpkwh0hPu6j3ui">中</td></tr>
+      <tr data-page-node-id="uStDZiLOzGODk6RxjpjEaC"><td data-page-node-id="6vQlETlEOqqsVivvb5f3HO">6</td><td data-page-node-id="EZJPar2KyTEoBOVPN8rl1l">暗色模式</td><td data-page-node-id="OpAnaUQoW1Aq1mCZrZsiNk">中</td><td data-page-node-id="i1JJKOrtQzL1EuBCXvRAVc">高</td></tr>
+      <tr data-page-node-id="maVasEEW05dRnxrJ4uPfhb"><td data-page-node-id="heACo07eElci6EWVKRQ9tz">7</td><td data-page-node-id="veWY4bUEBYAHCxYy5dFMpk">细节打磨清单</td><td data-page-node-id="Cvtn1DatVwIYxBta3B2anO">小</td><td data-page-node-id="d9389UNmWO1WEn7sQ0jhJ4">低</td></tr>
+    </table>
+    <p class="desc" style="margin-top:12px" data-page-node-id="oni6wJQHm2swABnQHAtWxs">前 4 项做完即可完成一次"肉眼可见的换代"，全部 7 项构成完整产品级视觉。</p>
+  </div>
+</div>
+</body>
+</html>

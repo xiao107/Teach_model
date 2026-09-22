@@ -220,6 +220,12 @@ async def process_user_command(
                     chart_payload = chart
 
                 appendix_text = appendix.strip()
+                # Failed actions (❌) must NOT count as "already executed":
+                # e.g. train-before-load failed, and after load the model must
+                # be allowed to retry the same train. Only success is sticky.
+                if "❌" in appendix_text:
+                    executed_signatures.discard(signature)
+                    logger.info("Action %s failed, allowed to retry later", act["action"])
                 entry: Dict[str, Any] = {
                     "action": act["action"],
                     "title": ACTION_LABELS.get(act["action"], act["action"]),
@@ -240,9 +246,12 @@ async def process_user_command(
                 + "\n\n".join(
                     f"### {e['action']}\n{e['result'] or '（图表已生成）'}" for e in executed
                 )
-                + "\n\n以上动作已实际执行完毕，结果真实有效。请根据以上结果继续："
-                "若任务未完成，只输出**尚缺少的**下一组 actions（严禁重复执行上面已经"
-                "执行过并回填了结果的动作）；若已完成，输出总结性 reply（不要带 action）。"
+                + "\n\n以上动作已实际执行完毕，结果真实有效。请根据以上结果继续：\n"
+                "- 若某动作的结果是 ❌ 失败，请先补齐它缺失的前置条件（例如先 load 数据集），"
+                "然后**重新输出该失败的动作**——失败的动作允许且应当重试；\n"
+                "- 若任务未完成，只输出**尚缺少的**下一组 actions（严禁重复执行上面已经"
+                "成功执行过并回填了结果的动作）；\n"
+                "- 若已完成，输出总结性 reply（不要带 action）。"
             )
             messages = messages + [
                 {"role": "assistant", "content": json.dumps(json_data, ensure_ascii=False)},

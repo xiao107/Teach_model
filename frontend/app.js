@@ -67,6 +67,16 @@ const ARROW_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 const BOT_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M8 4h8"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/></svg>`;
 const CHART_EMPTY_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/></svg>`;
 
+const ACTION_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+/* 动作名称 -> 中文标签（后端 result.title 缺失时的兜底） */
+const ACTION_LABELS = {
+  load: "数据集加载", preview: "数据预览", check_missing: "缺失值检查",
+  fill_missing: "缺失值填充", encode: "特征编码", split: "数据分割",
+  train: "模型训练", evaluate: "模型评估", plot: "图表生成",
+  knn_train: "模型训练", svm_train: "模型训练", gbt_train: "模型训练",
+};
+
 const EXAMPLES = [
   { badge: "📊", cls: "b1", title: "加载并探索数据集", desc: "试试：\"加载 iris 数据集并预览前 5 行\"", text: "请加载 iris 数据集并预览前 5 行" },
   { badge: "🤖", cls: "b2", title: "一步完成建模", desc: "多步指令：\"训练随机森林并评估效果\"", text: "用随机森林训练模型并评估效果" },
@@ -149,6 +159,44 @@ function renderMarkdown(text) {
   if (typeof marked === "undefined") return escapeHtml(text);
   const html = marked.parse(text || "");
   return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(html) : html;
+}
+
+/* ---------------- P0-4: CJK 强调渲染兼容层 ----------------
+   CommonMark 对 CJK 边界的强调判定有缺陷：
+   `**setosa（类别0）**与其` 中闭侧 `**` 前是全角标点、后是汉字，
+   不满足 right-flanking 规则，marked 会保留字面星号。
+   兼容策略：渲染后遍历文本节点，把残留的 **...** 转成 <strong>。
+   （pre/code 内的星号不处理，保持代码原样。） */
+const CJK_BOLD_RE = /\*\*([^*\n]+)\*\*/g;
+
+function fixCjkEmphasis(rootEl) {
+  if (!rootEl) return;
+  const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement;
+      if (!parent || parent.closest("pre, code")) return NodeFilter.FILTER_REJECT;
+      return node.nodeValue.includes("**") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    const text = node.nodeValue;
+    CJK_BOLD_RE.lastIndex = 0;
+    if (!CJK_BOLD_RE.test(text)) return;
+    const frag = document.createDocumentFragment();
+    let last = 0, m;
+    CJK_BOLD_RE.lastIndex = 0;
+    while ((m = CJK_BOLD_RE.exec(text)) !== null) {
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const strong = document.createElement("strong");
+      strong.textContent = m[1];
+      frag.appendChild(strong);
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  });
 }
 
 /* 深色代码块包装：语言角标 + 复制按钮 */
@@ -434,6 +482,39 @@ function renderWelcomeHero() {
   chatBox.appendChild(hero);
 }
 
+/* ---------------- P0-3: 结果卡片组件 ----------------
+   每个动作的执行结果（表格/统计/图表）独立成卡片，
+   支持一次指令输出多张图表、多张表格互不覆盖。 */
+function renderResultCard(entry, container) {
+  if (!entry) return;
+  const card = document.createElement("div");
+  card.className = "result-card";
+
+  const head = document.createElement("div");
+  head.className = "result-head";
+  head.innerHTML = `<span class="result-check">${ACTION_ICON_SVG}</span><span class="result-title"></span>`;
+  head.querySelector(".result-title").textContent =
+    entry.title || ACTION_LABELS[entry.action] || entry.action || "执行结果";
+  card.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "result-body markdown-body";
+  const text = (entry.text || "").trim();
+  if (text) {
+    body.innerHTML = renderMarkdown(text);
+    enhanceCodeBlocks(body);
+    fixCjkEmphasis(body);
+    card.appendChild(body);
+  }
+
+  if (entry.chart) {
+    renderChart(entry.chart, card);
+  }
+
+  container.appendChild(card);
+  return card;
+}
+
 /* ---------------- message rendering ---------------- */
 function createMessageWrapper(sender) {
   const wrapper = document.createElement("div");
@@ -449,15 +530,21 @@ function createMessageWrapper(sender) {
   bubble.className = "message-bubble";
   content.appendChild(bubble);
 
+  // 结果卡片区：与气泡同列，流式阶段逐张追加
+  const resultsWrap = document.createElement("div");
+  resultsWrap.className = "msg-results";
+  content.appendChild(resultsWrap);
+
   wrapper.appendChild(avatar);
   wrapper.appendChild(content);
-  return { wrapper, bubble };
+  return { wrapper, bubble, resultsWrap };
 }
 
 function displayParsedMessage(text, sender, options = {}) {
-  const { chart = null, steps = null } = options;
-  const { wrapper, bubble } = createMessageWrapper(sender);
+  const { chart = null, steps = null, results = null } = options;
+  const { wrapper, bubble, resultsWrap } = createMessageWrapper(sender);
   bubble.innerHTML = renderMarkdown(text);
+  fixCjkEmphasis(bubble);
   enhanceCodeBlocks(bubble);
   if (steps && steps.length) {
     const stepEl = document.createElement("div");
@@ -465,16 +552,20 @@ function displayParsedMessage(text, sender, options = {}) {
     stepEl.textContent = `🧾 执行步骤：${steps.join(" → ")}`;
     bubble.appendChild(stepEl);
   }
-  if (chart) renderChart(chart, bubble);
+  if (results && results.length) {
+    results.forEach((entry) => renderResultCard(entry, resultsWrap));
+  } else if (chart) {
+    renderChart(chart, resultsWrap); // 旧历史记录的单图表兼容
+  }
   chatBox.appendChild(wrapper);
   scrollBottom();
-  return { wrapper, bubble };
+  return { wrapper, bubble, resultsWrap };
 }
 
-function appendHistory(sender, content, chart = null, steps = null) {
+function appendHistory(sender, content, chart = null, steps = null, results = null) {
   const session = sessions.find((s) => s.id === currentSessionId);
   if (!session) return;
-  session.history.push({ sender, content, chart, steps });
+  session.history.push({ sender, content, chart, steps, results });
   saveSessions();
 }
 
@@ -484,7 +575,11 @@ function renderHistory(sessionId) {
   if (!session) return;
   if (!session.history.length) { renderWelcomeHero(); return; }
   session.history.forEach((m) => {
-    displayParsedMessage(m.content, m.sender, { chart: m.chart || null, steps: m.steps || null });
+    displayParsedMessage(m.content, m.sender, {
+      chart: m.chart || null,
+      steps: m.steps || null,
+      results: m.results || null,
+    });
   });
 }
 
@@ -541,7 +636,7 @@ async function sendMessage(presetText, options = {}) {
   isSending = true;
   setSendingUI(true);
 
-  const { wrapper, bubble } = createMessageWrapper("assistant");
+  const { wrapper, bubble, resultsWrap } = createMessageWrapper("assistant");
   const preview = showThinking(bubble, uploadedFileId ? "正在分析上传的数据" : "正在思考");
   chatBox.appendChild(wrapper);
   scrollBottom();
@@ -607,7 +702,13 @@ async function sendMessage(presetText, options = {}) {
     // 离屏回复
     const target = sessions.find((s) => s.id === requestSessionId);
     if (target && finalData) {
-      target.history.push({ sender: "assistant", content: finalData.reply, chart: finalData.chart || null, steps: finalData.steps || null });
+      target.history.push({
+        sender: "assistant",
+        content: finalData.reply,
+        chart: finalData.chart || null,
+        steps: finalData.steps || null,
+        results: finalData.results || null,
+      });
       saveSessions();
       renderSessionList();
       showToast(`会话「${target.name}」收到新回复`);
@@ -621,6 +722,7 @@ async function sendMessage(presetText, options = {}) {
   wrapper.classList.add("settle");
   const reply = finalData?.reply || fullText || "（没有收到回复）";
   bubble.innerHTML = renderMarkdown(reply);
+  fixCjkEmphasis(bubble); // P0-4: CJK 强调兼容
   enhanceCodeBlocks(bubble);
   if (finalData?.steps?.length) {
     const stepEl = document.createElement("div");
@@ -628,8 +730,15 @@ async function sendMessage(presetText, options = {}) {
     stepEl.textContent = `🧾 执行步骤：${finalData.steps.join(" → ")}`;
     bubble.appendChild(stepEl);
   }
-  if (finalData?.chart) renderChart(finalData.chart, bubble);
-  appendHistory("assistant", reply, finalData?.chart || null, finalData?.steps || null);
+  // 结果卡片在流式阶段已实时渲染；离屏/兜底时补渲染
+  const hasLiveResults = resultsWrap.children.length > 0;
+  const finalResults = finalData?.results || [];
+  if (!hasLiveResults && finalResults.length) {
+    finalResults.forEach((entry) => renderResultCard(entry, resultsWrap));
+  } else if (!hasLiveResults && finalData?.chart) {
+    renderChart(finalData.chart, resultsWrap); // 旧后端单图表兜底
+  }
+  appendHistory("assistant", reply, finalData?.chart || null, finalData?.steps || null, finalResults.length ? finalResults : null);
   scrollBottom();
 
   // TASK-106: 首条回复后自动生成标题
@@ -760,6 +869,11 @@ exportBtn.addEventListener("click", () => {
 });
 
 /* ---------------- sidebar ---------------- */
+newChatBtn.addEventListener("click", () => {
+  if (isSending) { showToast("请等待当前回复完成"); return; }
+  createNewSession();
+  if (window.innerWidth <= 900) document.body.classList.remove("mobile-sidebar-open");
+});
 menuToggleBtn.addEventListener("click", () => {
   if (window.innerWidth <= 900) {
     document.body.classList.toggle("mobile-sidebar-open");

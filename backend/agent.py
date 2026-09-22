@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend import actions, data_loader
@@ -24,6 +25,37 @@ logger = logging.getLogger(__name__)
 
 # Async callback receiving (event_type, text) pieces for SSE forwarding.
 DeltaCallback = Callable[[str, str], Awaitable[None]]
+
+# Human-readable labels for action names, used by the frontend result cards.
+ACTION_LABELS: Dict[str, str] = {
+    "load": "数据集加载",
+    "preview": "数据预览",
+    "check_missing": "缺失值检查",
+    "fill_missing": "缺失值填充",
+    "encode": "特征编码",
+    "split": "数据分割",
+    "train": "模型训练",
+    "evaluate": "模型评估",
+    "plot": "图表生成",
+    "knn_train": "模型训练",
+    "svm_train": "模型训练",
+    "gbt_train": "模型训练",
+}
+
+# Heuristic: does the user command look like it asks for an operation?
+# Used to decide whether a no-action reply deserves a corrective retry.
+_OPERATION_KEYWORD_RE = re.compile(
+    r"加载|预览|查看|检查|填充|编码|分割|划分|训练|评估|预测|画|绘制|图表|热力|直方|散点|箱线|折线|柱状|"
+    r"plot|load|preview|missing|fill|encode|split|train|evaluat|knn|svm|gbt|forest|regression|tree|chart",
+    re.IGNORECASE,
+)
+
+_CORRECTIVE_NUDGE = (
+    "【系统纠偏】你上一次的回复只有过渡性文字，没有包含任何 action 或 actions 字段，"
+    "系统什么都没有执行，这是严重错误。请立刻重新输出完整 JSON："
+    "根据老师的指令给出 action（单步）或 actions 数组（多步，最多 5 步），"
+    "reply 保持简短。不要输出任何不含动作的过渡语。"
+)
 
 
 def _build_context_string(manager: ConversationManager) -> str:
@@ -99,10 +131,12 @@ async def process_user_command(
     """
     Process a user command with a multi-step agent loop.
 
-    Returns {"reply": str, "chart": Optional[dict], "steps": [action names]}.
+    Returns {"reply": str, "chart": Optional[dict], "steps": [action names],
+             "results": [{action, title, text, chart}, ...]}.
     `on_delta(event, text)` receives streaming pieces:
       event="delta"  -> raw LLM text piece (streaming preview)
       event="status" -> action execution progress
+      event="result" -> JSON-encoded result entry (table/chart card data)
     """
     model_name = model_name or settings.deepseek_model
     logger.info("Processing command: %s", command)
@@ -111,8 +145,10 @@ async def process_user_command(
 
     final_reply = ""
     chart_payload: Optional[Dict[str, Any]] = None
+    results: List[Dict[str, Any]] = []
     executed_steps: List[str] = []
     executed_signatures: set = set()  # (action, params) dedup guard within one command
+    corrective_used = False  # transition-only corrective retry, at most once
 
     try:
         for step in range(settings.agent_max_steps):
@@ -127,20 +163,38 @@ async def process_user_command(
                 response = await invoke_deepseek(api_key, messages, model_name=model_name)
 
             json_data, cleaned = _parse_json_response(response)
-            if json_data is None:
-                logger.warning(
-                    "LLM round %d returned no parseable JSON (len=%d), treating as plain reply",
-                    step + 1, len(response),
-                )
-                final_reply = response.strip()
+            action_list = _extract_actions(json_data) if json_data else []
+
+            if not action_list:
+                round_reply = (
+                    str(json_data.get("reply", "") or "").strip()
+                    if json_data else ""
+                ) or (cleaned or response).strip()
+
+                # P0-2: transition-only guard — the model produced prose like
+                # "好的老师，正在训练模型：" without any action. Nudge once.
+                if (
+                    step == 0
+                    and not corrective_used
+                    and _OPERATION_KEYWORD_RE.search(command)
+                ):
+                    corrective_used = True
+                    logger.warning(
+                        "Round 1 returned no actions (transition-only?), nudging model. reply=%r",
+                        round_reply[:80],
+                    )
+                    if on_delta is not None:
+                        await on_delta("status", "重新组织回复...")
+                    messages = messages + [
+                        {"role": "assistant", "content": response},
+                        {"role": "user", "content": _CORRECTIVE_NUDGE},
+                    ]
+                    continue
+
+                final_reply = round_reply
                 break
 
             round_reply = str(json_data.get("reply", "") or cleaned or "").strip()
-            action_list = _extract_actions(json_data)
-
-            if not action_list:
-                final_reply = round_reply
-                break
 
             # ---- execute this group of actions ----
             executed: List[Dict[str, str]] = []
@@ -164,7 +218,21 @@ async def process_user_command(
                 )
                 if chart is not None:
                     chart_payload = chart
+
+                appendix_text = appendix.strip()
+                entry: Dict[str, Any] = {
+                    "action": act["action"],
+                    "title": ACTION_LABELS.get(act["action"], act["action"]),
+                    "text": appendix_text,
+                    "chart": chart,
+                }
+                results.append(entry)
                 executed.append({"action": act["action"], "result": appendix.strip()})
+
+                # P0-3: push each result to the frontend immediately so tables
+                # and charts render live, instead of a single overwritten slot.
+                if on_delta is not None:
+                    await on_delta("result", json.dumps(entry, ensure_ascii=False))
 
             # Feed results back for the next round
             feedback = (
@@ -187,9 +255,13 @@ async def process_user_command(
             final_reply = "老师，这一轮的操作已经完成。"
 
         manager.add_message("assistant", final_reply)
-        result: Dict[str, Any] = {"reply": final_reply, "steps": executed_steps}
+        result: Dict[str, Any] = {
+            "reply": final_reply,
+            "steps": executed_steps,
+            "results": results,
+        }
         if chart_payload:
-            result["chart"] = chart_payload
+            result["chart"] = chart_payload  # legacy single-slot, kept for compat
         return result
 
     except Exception as exc:

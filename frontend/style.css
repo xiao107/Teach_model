@@ -713,3 +713,59 @@ body:not([data-theme="dark"]) .icon-sun { display: none; }
   .message-content { max-width: 88%; }
   .topbar-title { display: none; }
 }
+
+/* ======================================================================
+   v23: P0-3 结果卡片 / composer 无提示文字版式
+   ====================================================================== */
+.msg-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.msg-results:empty { display: none; }
+
+.result-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  animation: resultIn 0.28s var(--ease);
+}
+@keyframes resultIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.result-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  background: var(--page-bg);
+}
+.result-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  color: #fff;
+  flex: none;
+}
+.result-check svg { width: 11px; height: 11px; }
+.result-body {
+  padding: 10px 14px;
+  font-size: 13px;
+  overflow-x: auto;
+}
+.result-body table {
+  max-width: 100%;
+}
+.result-body p:last-child { margin-bottom: 0; }

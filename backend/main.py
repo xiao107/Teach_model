@@ -196,6 +196,7 @@ class ChatResponse(BaseModel):
     reply: str
     chart: Optional[Dict[str, Any]] = None
     steps: Optional[list] = None
+    results: Optional[list] = None  # P0-3: per-action result entries for the frontend
 
 
 # ---------------------------------------------------------------- helpers
@@ -257,6 +258,7 @@ async def chat_endpoint(request: ChatRequest):
         reply=result.get("reply", ""),
         chart=result.get("chart"),
         steps=result.get("steps") or [],
+        results=result.get("results") or [],
     )
 
 
@@ -295,6 +297,7 @@ async def chat_stream_endpoint(request: ChatRequest):
                     "reply": result.get("reply", ""),
                     "chart": result.get("chart"),
                     "steps": result.get("steps") or [],
+                    "results": result.get("results") or [],
                 }, ensure_ascii=False)))
             except Exception as exc:
                 llm_breaker.record_failure()
@@ -312,8 +315,9 @@ async def chat_stream_endpoint(request: ChatRequest):
                     break
                 if event == "status":
                     yield f"event: status\ndata: {json.dumps({'message': text}, ensure_ascii=False)}\n\n"
-                elif event in ("final", "error"):
-                    yield f"event: {event}\ndata: {text}\n\n"  # already JSON-encoded
+                elif event in ("final", "error", "result"):
+                    # result payloads are pre-encoded JSON by the agent layer
+                    yield f"event: {event}\ndata: {text}\n\n"
                 else:
                     yield f"event: {event}\ndata: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
         finally:

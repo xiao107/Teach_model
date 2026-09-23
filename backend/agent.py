@@ -148,6 +148,9 @@ async def process_user_command(
     results: List[Dict[str, Any]] = []
     executed_steps: List[str] = []
     executed_signatures: set = set()  # (action, params) dedup guard within one command
+    failure_counts: Dict[Any, int] = {}  # signature -> consecutive failure count
+    last_errors: Dict[Any, str] = {}  # signature -> last failure message
+    retry_exhausted = False  # an action failed too many times -> stop the loop
     corrective_used = False  # transition-only corrective retry, at most once
 
     try:
@@ -209,6 +212,31 @@ async def process_user_command(
                         {"action": act["action"], "result": "（该动作在本次指令中已执行过，已自动跳过，结果见上文）"}
                     )
                     continue
+
+                # A failed action may be retried (e.g. train-before-load), but not
+                # forever: an unresolvable failure used to spin the whole loop
+                # (18 steps of the same failing train). Cap it.
+                if failure_counts.get(signature, 0) >= settings.agent_max_action_retries:
+                    logger.warning(
+                        "Action %s already failed %d times, stopping retries",
+                        act["action"], failure_counts[signature],
+                    )
+                    retry_exhausted = True
+                    entry: Dict[str, Any] = {
+                        "action": act["action"],
+                        "title": ACTION_LABELS.get(act["action"], act["action"]),
+                        "text": (
+                            f"❌ 该动作已连续失败 {failure_counts[signature]} 次，"
+                            "为避免反复空转已停止重试。"
+                        ),
+                        "chart": None,
+                    }
+                    results.append(entry)
+                    executed.append({"action": act["action"], "result": entry["text"]})
+                    if on_delta is not None:
+                        await on_delta("result", json.dumps(entry, ensure_ascii=False))
+                    continue
+
                 executed_signatures.add(signature)
                 executed_steps.append(act["action"])
                 if on_delta is not None:
@@ -225,7 +253,12 @@ async def process_user_command(
                 # be allowed to retry the same train. Only success is sticky.
                 if "❌" in appendix_text:
                     executed_signatures.discard(signature)
-                    logger.info("Action %s failed, allowed to retry later", act["action"])
+                    failure_counts[signature] = failure_counts.get(signature, 0) + 1
+                    last_errors[signature] = appendix_text
+                    logger.info(
+                        "Action %s failed (%d time(s)), allowed to retry later",
+                        act["action"], failure_counts[signature],
+                    )
                 entry: Dict[str, Any] = {
                     "action": act["action"],
                     "title": ACTION_LABELS.get(act["action"], act["action"]),
@@ -240,6 +273,31 @@ async def process_user_command(
                 if on_delta is not None:
                     await on_delta("result", json.dumps(entry, ensure_ascii=False))
 
+            # ---- stop the loop when a failure cannot be resolved by retrying ----
+            if retry_exhausted:
+                exhausted = [
+                    (sig, err) for sig, err in last_errors.items()
+                    if failure_counts.get(sig, 0) >= settings.agent_max_action_retries
+                ]
+                detail = ""
+                if exhausted:
+                    err_text = exhausted[-1][1].replace("\n", " ").strip()
+                    detail = f"\n\n最后一次的报错是：\n> {err_text[:200]}"
+                final_reply = (
+                    "老师，有一个动作我连续试了几次都没成功，就先停下来不反复重试了，免得空转浪费您时间。"
+                    f"{detail}\n\n"
+                    "从上面结果看，常见的两种原因和解法：\n"
+                    "1. 训练数据里还有缺失值 —— 先执行 `fill_missing`（中位数填充）再训练；\n"
+                    "2. 目标列选错了 —— 比如把一列整列为空的数据当成了标签，"
+                    "可以先执行 `check_missing` 确认哪些列是空的，再指定正确的目标列。\n\n"
+                    "您想让我先用哪种方式排查？"
+                )
+                logger.warning(
+                    "Loop stopped early, actions exhausted: %s",
+                    ", ".join(str(sig[0]) for sig, _ in exhausted) or "unknown",
+                )
+                break
+
             # Feed results back for the next round
             feedback = (
                 "【系统执行结果】\n"
@@ -248,7 +306,9 @@ async def process_user_command(
                 )
                 + "\n\n以上动作已实际执行完毕，结果真实有效。请根据以上结果继续：\n"
                 "- 若某动作的结果是 ❌ 失败，请先补齐它缺失的前置条件（例如先 load 数据集），"
-                "然后**重新输出该失败的动作**——失败的动作允许且应当重试；\n"
+                "然后**重新输出该失败的动作**——失败的动作允许且应当重试；"
+                f"但同一个动作最多重试 {settings.agent_max_action_retries} 次，"
+                "超过后请停止重试、改为向老师说明失败原因与排查建议；\n"
                 "- 若任务未完成，只输出**尚缺少的**下一组 actions（严禁重复执行上面已经"
                 "成功执行过并回填了结果的动作）；\n"
                 "- 若已完成，输出总结性 reply（不要带 action）。"

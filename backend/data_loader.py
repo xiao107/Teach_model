@@ -38,7 +38,17 @@ def load_sklearn_dataset(name: str) -> Tuple[pd.DataFrame, str]:
     if target is not None:
         df["target"] = target
         target_names = getattr(dataset, "target_names", None)
-        if target_names is not None:
+        # 只为「类别索引型」目标生成 target_label：
+        # 分类数据集（iris/wine/breast_cancer）的 target 是 0..n-1 的整数，可映射到名称；
+        # 回归数据集（california_housing）的 target 是连续浮点值，target_names 只有
+        # ['MedHouseVal'] 一项，强行映射会把整列变成 NaN —— 这正是旧版把全 NaN 目标列
+        # 喂给 split/train 的根源。
+        if (
+            target_names is not None
+            and pd.api.types.is_integer_dtype(df["target"])
+            and len(df) > 0
+            and int(df["target"].max()) < len(target_names)
+        ):
             mapping = {i: name for i, name in enumerate(target_names)}
             df["target_label"] = df["target"].map(mapping)
 

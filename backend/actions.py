@@ -7,9 +7,10 @@ The `plot` action additionally returns a chart payload for the frontend.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+from sklearn.base import clone
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, mean_squared_error, r2_score
@@ -143,27 +144,47 @@ def _action_fill_missing(params: Dict[str, Any], manager: ConversationManager) -
 
     df = manager.current_data
     method = params.get("method", "median")
-    missing_before = df.isnull().sum().sum()
+    missing_before = int(df.isnull().sum().sum())
 
     if missing_before == 0:
         return "\n\n---\n\n✓ 数据集中没有缺失值，无需填充。", None
 
-    numeric_cols = df.select_dtypes(include=["number"]).columns
+    # 目标列（及其同源列）不参与填充：把标签填成中位数会污染训练目标
+    protected = _label_family_columns(df, manager.current_target_col)
+    fill_cols = [c for c in df.columns if c not in protected]
+
+    numeric_cols = [c for c in df[fill_cols].select_dtypes(include=["number"]).columns]
     if method == "mean":
-        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+        if numeric_cols:
+            df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
     elif method == "median":
-        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
+        if numeric_cols:
+            df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
     elif method == "mode":
-        for col in df.columns:
+        for col in fill_cols:
             mode = df[col].mode()
-            df[col] = df[col].fillna(mode.iloc[0] if not mode.empty else df[col])
+            if not mode.empty:
+                df[col] = df[col].fillna(mode.iloc[0])
     elif method == "drop":
-        df = df.dropna()
+        df = df.dropna(subset=fill_cols) if fill_cols else df
     else:
         return f"\n\n❌ 不支持的填充方法：{method}", None
 
     manager.current_data = df
-    missing_after = df.isnull().sum().sum()
+    missing_after = int(df.isnull().sum().sum())
+
+    # ---- 真实校验：缺失数没下降就是失败，绝不能报"填充完成" ----
+    if missing_after >= missing_before:
+        stuck = df.isnull().sum()
+        stuck = stuck[stuck > 0]
+        detail = "、".join(f"{col}（{int(n)} 个）" for col, n in stuck.items()) or "未知列"
+        return (
+            f"\n\n❌ 缺失值填充失败：填充后缺失值仍为 {missing_after} 个（填充前 {missing_before} 个）。\n\n"
+            f"未能处理的列：{detail}\n\n"
+            "常见原因：该列整列都是缺失值，均值/中位数/众数本身也是空值，无法用统计量填充。"
+            "请检查是否选错了目标列（用一列全空的数据当标签）。\n"
+        ), None
+
     text = (
         "\n\n---\n\n**✓ 缺失值填充完成**\n\n"
         f"- **填充方法**: {method}\n"
@@ -171,6 +192,17 @@ def _action_fill_missing(params: Dict[str, Any], manager: ConversationManager) -
         f"- **填充后缺失值**: {missing_after}\n"
         f"- **当前数据形状**: {df.shape}\n"
     )
+    if protected:
+        text += f"- **已跳过目标列**: {', '.join(protected)}（避免污染标签）\n"
+
+    if missing_after > 0:
+        stuck = df.isnull().sum()
+        stuck = stuck[stuck > 0]
+        detail = "、".join(f"{col}（{int(n)} 个）" for col, n in stuck.items())
+        text += (
+            f"\n> ⚠ 仍有 {missing_after} 个缺失值无法用「{method}」填充：{detail}。"
+            "这些列整列或大部分为空，需要先确认数据来源是否正确。\n"
+        )
     return text, None
 
 
@@ -210,6 +242,74 @@ def _action_encode(params: Dict[str, Any], manager: ConversationManager) -> Tupl
     return text, None
 
 
+# ---------------------------------------------------------------------- target column
+
+# 约定目标列名，按优先级排序（先命中且非全空的胜出）
+CONVENTIONAL_TARGETS = ("target", "label", "y", "class", "MedHouseVal")
+
+_LABEL_SUFFIXES = ("_label", "_name", "_str")
+
+
+def _label_family(col: str) -> str:
+    """把目标列及其同源列归为同一族。
+
+    iris 同时有 `target`(0/1/2) 和 `target_label`('setosa'...)，二者是同一份标签的
+    两种写法。若只把其中一列当 y，另一列留在 X 里，模型会直接"抄答案"（准确率虚高
+    到 1.0）。归族后可一次性排除，避免标签泄漏。
+    """
+    for suffix in _LABEL_SUFFIXES:
+        if col.endswith(suffix):
+            return col[: -len(suffix)]
+    return col
+
+
+def _label_family_columns(df: pd.DataFrame, target_col: Optional[str]) -> List[str]:
+    """目标列同源列（含目标列本身）。target_col 为空时按列名约定兜底。"""
+    if not target_col:
+        return [c for c in df.columns if str(c).lower() in ("target", "target_label", "label", "y")]
+    family = _label_family(str(target_col))
+    return [c for c in df.columns if _label_family(str(c)) == family]
+
+
+def _resolve_target_column(
+    df: pd.DataFrame, explicit: Optional[str] = None
+) -> Tuple[Optional[str], Optional[str]]:
+    """确定目标列，返回 (列名, 错误说明)。
+
+    优先级：显式指定 > 约定列名 > 最后一列。任一候选都必须真实存在且不是整列缺失，
+    否则旧版会静默拿一列全 NaN 当标签，训练报出 "Input contains NaN" 后无人能懂。
+    """
+    def _usable(col: str) -> Tuple[bool, str]:
+        if col not in df.columns:
+            return False, f"列 {col} 不存在。当前列名：{', '.join(map(str, df.columns))}"
+        if df[col].isna().all():
+            return False, f"列 {col} 整列都是缺失值（NaN），不能作为目标列"
+        return True, ""
+
+    if explicit:
+        ok, reason = _usable(str(explicit))
+        if not ok:
+            # 显式指定失败时给出可用候选，而不是继续往下猜
+            candidates = [c for c in CONVENTIONAL_TARGETS if c in df.columns and not df[c].isna().all()]
+            hint = f"可用目标列：{', '.join(candidates)}" if candidates else f"最后一列：{df.columns[-1]}"
+            return None, f"{reason}。{hint}"
+        return str(explicit), None
+
+    for cand in CONVENTIONAL_TARGETS:
+        if cand in df.columns and not df[cand].isna().all():
+            return cand, None
+
+    last = df.columns[-1]
+    if df[last].isna().all():
+        all_na = [c for c in CONVENTIONAL_TARGETS if c in df.columns and df[c].isna().all()]
+        hint = (
+            f"约定目标列 {', '.join(all_na)} 整列都是缺失值"
+            if all_na else f"最后一列 {last} 整列都是缺失值"
+        )
+        return None, f"未能确定目标列：{hint}，无法作为目标列。请检查数据是否加载正确"
+    return last, None
+
+
 def _action_split(params: Dict[str, Any], manager: ConversationManager) -> Tuple[str, None]:
     if manager.current_data is None:
         return "\n\n❌ 还没有加载数据集。", None
@@ -217,14 +317,15 @@ def _action_split(params: Dict[str, Any], manager: ConversationManager) -> Tuple
     df = manager.current_data
     test_size = float(params.get("test_size", 0.2))
     random_state = int(params.get("random_state", 42))
-    target_col = params.get("target")
 
-    if target_col and target_col in df.columns:
-        X = df.drop(columns=[target_col])
-        y = df[target_col]
-    else:
-        X = df.iloc[:, :-1]
-        y = df.iloc[:, -1]
+    target_col, err = _resolve_target_column(df, params.get("target"))
+    if target_col is None:
+        return f"\n\n❌ 数据分割失败：{err}", None
+
+    # 同族列（如 target 与 target_label）必须一起排除，否则标签泄漏
+    leak_cols = [c for c in _label_family_columns(df, target_col) if c != target_col]
+    X = df.drop(columns=[target_col] + leak_cols)
+    y = df[target_col]
 
     # 对非数值特征列做标签编码，保证模型可用
     obj_cols = X.select_dtypes(exclude=["number"]).columns.tolist()
@@ -241,6 +342,7 @@ def _action_split(params: Dict[str, Any], manager: ConversationManager) -> Tuple
     manager.y_test = y_test
     manager.current_X = X
     manager.current_y = y
+    manager.current_target_col = target_col
 
     text = (
         "\n\n---\n\n**✓ 数据分割完成**\n\n"
@@ -248,10 +350,20 @@ def _action_split(params: Dict[str, Any], manager: ConversationManager) -> Tuple
         f"- **测试集大小**: {X_test.shape[0]} 样本\n"
         f"- **特征数**: {X_train.shape[1]}\n"
         f"- **测试集比例**: {test_size * 100:.0f}%\n"
-        f"- **目标列**: {y.name}\n"
+        f"- **目标列**: {target_col}\n"
     )
+    if leak_cols:
+        text += f"- **已排除同源列**: {', '.join(leak_cols)}（与目标列同义，避免标签泄漏）\n"
     if obj_cols:
         text += f"- **已自动编码的非数值列**: {', '.join(obj_cols)}\n"
+
+    y_nan = int(y.isna().sum())
+    x_nan = int(X.isna().sum().sum())
+    if y_nan or x_nan:
+        text += (
+            f"\n> ⚠ 数据中仍有缺失值（特征 {x_nan} 个 / 目标 {y_nan} 个），"
+            "直接训练会失败，建议先执行 fill_missing。\n"
+        )
     return text, None
 
 
@@ -298,8 +410,29 @@ def _ensure_split(manager: ConversationManager) -> bool:
 def _action_train(params: Dict[str, Any], manager: ConversationManager) -> Tuple[str, None]:
     model_key = str(params.get("model", "")).lower()
 
+    if manager.current_data is None:
+        return "\n\n❌ 还没有加载数据集，请先执行 load。", None
+
+    # 老师（或模型）显式指定了目标列：若与当前分割不一致，重新按该列分割。
+    # 旧版完全忽略 target 参数，导致模型说"改用正确的目标列重新训练"却毫无效果。
+    requested_target = params.get("target")
+    if requested_target and str(requested_target) != manager.current_target_col:
+        appendix, _ = _action_split({"target": requested_target}, manager)
+        if "✓" not in appendix:
+            return appendix or "\n\n❌ 按指定目标列重新分割失败。", None
+
     if not _ensure_split(manager):
         return "\n\n❌ 没有可用的训练数据，且自动分割失败。", None
+
+    # ---- 训练前校验：缺失值会让 sklearn 抛出难懂的异常，这里提前拦截并给出可执行的建议 ----
+    x_nan = int(manager.X_train.isna().sum().sum())
+    y_nan = int(manager.y_train.isna().sum())
+    if y_nan or x_nan:
+        return (
+            f"\n\n❌ 训练失败：训练数据中仍有缺失值（特征 {x_nan} 个 / 目标 {y_nan} 个）。"
+            f"当前目标列：{manager.current_target_col}。"
+            "请先执行 fill_missing 补齐缺失值，或检查目标列是否选择正确。"
+        ), None
 
     task_type = manager.current_task_type or (
         "classification" if manager.y_train.dtype == object or manager.y_train.nunique() <= 20
@@ -317,7 +450,8 @@ def _action_train(params: Dict[str, Any], manager: ConversationManager) -> Tuple
         ), None
 
     try:
-        model = available[model_key]
+        # clone: MODEL_REGISTRY 里是共享的单例，直接 fit 会让会话之间互相覆盖模型状态
+        model = clone(available[model_key])
         model.fit(manager.X_train, manager.y_train)
     except Exception as exc:
         logger.exception("Model training failed")
@@ -334,7 +468,9 @@ def _action_train(params: Dict[str, Any], manager: ConversationManager) -> Tuple
         "\n\n---\n\n**✓ 模型训练完成**\n\n"
         f"- **模型**: {MODEL_LABELS.get(model_key, model_key)}\n"
         f"- **任务类型**: {task_type}\n"
+        f"- **目标列**: {manager.current_target_col}\n"
         f"- **训练样本数**: {manager.X_train.shape[0]}\n"
+        f"- **特征数**: {manager.X_train.shape[1]}\n"
     )
     if train_acc is not None:
         text += f"- **训练集准确率**: {train_acc:.4f}\n"

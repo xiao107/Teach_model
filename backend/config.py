@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     # --- Agent loop (TASK-203) ---
     agent_max_steps: int = 5
+    # Same action may be retried after a failure (e.g. train before load),
+    # but never more than this many times in one command — prevents the
+    # "failed action spins forever" loop.
+    agent_max_action_retries: int = 2
 
     @property
     def cors_origin_list(self) -> List[str]:

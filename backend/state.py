@@ -32,6 +32,7 @@ class ConversationManager:
         self.current_model: Optional[Any] = None
         self.current_model_name: Optional[str] = None
         self.current_task_type: Optional[str] = None  # 'classification' or 'regression'
+        self.current_target_col: Optional[str] = None  # name of the current y column
         self.last_eval_true: Optional[np.ndarray] = None
         self.last_eval_pred: Optional[np.ndarray] = None
         self.last_eval_proba: Optional[np.ndarray] = None
@@ -48,9 +49,32 @@ class ConversationManager:
 
     # ------------------------------------------------------------------ data
 
+    def reset_derived(self) -> None:
+        """Drop everything derived from the *previous* dataset.
+
+        Without this, loading a new dataset kept the old X_train / y_train /
+        fitted model around, so `train` silently trained on the previous
+        dataset (e.g. KNN reported "训练样本数: 120" — that was iris, not the
+        newly loaded california_housing). Must be called on every data switch.
+        """
+        self.current_X = None
+        self.current_y = None
+        self.X_train = None
+        self.X_test = None
+        self.y_train = None
+        self.y_test = None
+        self.current_model = None
+        self.current_model_name = None
+        self.current_target_col = None
+        self.last_eval_true = None
+        self.last_eval_pred = None
+        self.last_eval_proba = None
+        self.metric_history = {}
+
     def set_data(self, df: pd.DataFrame, name: str) -> None:
         self.current_data = df
         self.current_dataset_name = name
+        self.reset_derived()
         if name in ("iris", "wine", "breast_cancer"):
             self.current_task_type = "classification"
         elif name == "california_housing":
@@ -61,6 +85,7 @@ class ConversationManager:
         """Set uploaded CSV data and infer the task type."""
         self.current_data = df
         self.current_dataset_name = filename
+        self.reset_derived()
         if df.shape[1] > 0:
             last_col = df.iloc[:, -1]
             if last_col.dtype in ("object", "category") or last_col.nunique() <= 10:
@@ -98,6 +123,9 @@ class ConversationManager:
         self.history = list(state.get("history", []))
         self.current_dataset_name = state.get("dataset_name")
         self.current_task_type = state.get("task_type")
+        # DataFrames and fitted models are not persisted -> make sure no stale
+        # in-memory derived state survives the restore.
+        self.reset_derived()
 
     # ------------------------------------------------------------------ cleanup
 
@@ -105,17 +133,6 @@ class ConversationManager:
         self.history.clear()
         self.current_data = None
         self.current_dataset_name = None
-        self.current_X = None
-        self.current_y = None
-        self.X_train = None
-        self.X_test = None
-        self.y_train = None
-        self.y_test = None
-        self.current_model = None
-        self.current_model_name = None
         self.current_task_type = None
-        self.last_eval_true = None
-        self.last_eval_pred = None
-        self.last_eval_proba = None
-        self.metric_history = {}
+        self.reset_derived()
         logger.info("Conversation context cleared")

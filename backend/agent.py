@@ -58,6 +58,22 @@ _CORRECTIVE_NUDGE = (
 )
 
 
+# Actions whose effect depends on mutable session state ("current model"):
+# the same (action, params) is NOT a duplicate when a different model has
+# been trained in between. 事故：同一指令训练 3 个模型，evaluate 的 params
+# 都是 {}，旧签名完全相同 → 只有第一个模型的评估真正执行，其余被静默跳过。
+STATEFUL_ACTIONS = {"evaluate"}
+
+
+def _dedup_signature(act: Dict[str, Any], manager: ConversationManager) -> tuple:
+    """去重签名：普通动作只看 (action, params)；依赖"当前模型"的动作
+    额外纳入 current_model_name，使换模型后的同名动作不被误判为重复。"""
+    params_json = json.dumps(act.get("params") or {}, sort_keys=True, ensure_ascii=False)
+    if act["action"] in STATEFUL_ACTIONS:
+        return (act["action"], params_json, manager.current_model_name)
+    return (act["action"], params_json)
+
+
 def _build_context_string(manager: ConversationManager) -> str:
     data, name = manager.get_data()
     parts: List[str] = ["\n【当前会话上下文】"]
@@ -217,10 +233,7 @@ async def process_user_command(
             # ---- execute this group of actions ----
             executed: List[Dict[str, str]] = []
             for act in action_list:
-                signature = (
-                    act["action"],
-                    json.dumps(act.get("params") or {}, sort_keys=True, ensure_ascii=False),
-                )
+                signature = _dedup_signature(act, manager)
                 if signature in executed_signatures:
                     logger.info("Skipping duplicate action %s (already executed)", act["action"])
                     executed.append(

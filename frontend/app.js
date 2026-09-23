@@ -1,5 +1,5 @@
 /* ======================================================================
-   Teach_model 前端逻辑 · v21
+   Teach_model 前端逻辑 · v26（v26: 结果卡片聚合：训练合并卡 + 评估对比表）
    TASK-102 ECharts teach-theme / TASK-106 标题+导出 / TASK-107 新图表
    ====================================================================== */
 
@@ -529,8 +529,15 @@ function renderWelcomeHero() {
 
 /* ---------------- P0-3: 结果卡片组件 ----------------
    每个动作的执行结果（表格/统计/图表）独立成卡片，
-   支持一次指令输出多张图表、多张表格互不覆盖。 */
-/* P1-1: 评估指标卡片（大数字 + 标签 + 口径提示），替代纯 markdown 列表 */
+   支持一次指令输出多张图表、多张表格互不覆盖。
+
+   v26: 聚合渲染，解决"一条指令训练 3 个模型就冒出 5 张碎片卡片"的问题：
+   - 同一指令内的多次 train 合并成一张紧凑的「模型训练」卡（每模型一行）；
+   - 多次 evaluate 聚合成一张自适应的「模型评估对比」表（自动标注每列最优）；
+   - 其余动作仍走完整的独立卡片。 */
+const TRAIN_ACTIONS = { train: 1, knn_train: 1, svm_train: 1, gbt_train: 1 };
+
+/* P1-1: 评估指标卡片（大数字 + 标签 + 口径提示），用于单模型评估兜底 */
 function buildMetricGrid(metrics) {
   const grid = document.createElement("div");
   grid.className = "metric-grid";
@@ -559,8 +566,29 @@ function buildMetricGrid(metrics) {
   return grid;
 }
 
-function renderResultCard(entry, container) {
-  if (!entry) return;
+function makeCardShell(title) {
+  const card = document.createElement("div");
+  card.className = "result-card";
+  const head = document.createElement("div");
+  head.className = "result-head";
+  head.innerHTML = `<span class="result-check">${ACTION_ICON_SVG}</span><span class="result-title"></span>`;
+  head.querySelector(".result-title").textContent = title;
+  card.appendChild(head);
+  return card;
+}
+
+/* 聚合状态：与一条助手消息（一个 resultsWrap）绑定 */
+function createResultAggregator() {
+  return {
+    trainCard: null, trainList: null,
+    evalCard: null, evalTableHead: null, evalTableBody: null,
+    evalMetrics: [], evalHints: {}, evalRows: null,
+    evalCharts: null,
+  };
+}
+
+/* 完整独立卡片（无法聚合时的兜底路径） */
+function renderFullResultCard(entry, container) {
   const card = document.createElement("div");
   card.className = "result-card";
 
@@ -592,6 +620,158 @@ function renderResultCard(entry, container) {
 
   container.appendChild(card);
   return card;
+}
+
+/* 同一指令内的多次训练 → 一张紧凑卡片，每模型一行 */
+function upsertTrainCard(entry, state, container) {
+  const t = entry.train || {};
+  if (!state.trainCard) {
+    state.trainCard = makeCardShell("模型训练");
+    const body = document.createElement("div");
+    body.className = "result-body";
+    state.trainList = document.createElement("div");
+    state.trainList.className = "train-rows";
+    body.appendChild(state.trainList);
+    state.trainCard.appendChild(body);
+    container.appendChild(state.trainCard);
+  }
+  const row = document.createElement("div");
+  row.className = "train-row";
+
+  const name = document.createElement("span");
+  name.className = "train-name";
+  name.textContent = t.model || "模型";
+
+  const meta = document.createElement("span");
+  meta.className = "train-meta";
+  const bits = [];
+  if (t.task_type === "classification") bits.push("分类");
+  else if (t.task_type === "regression") bits.push("回归");
+  if (t.samples != null) bits.push(`${t.samples} 样本`);
+  if (t.features != null) bits.push(`${t.features} 特征`);
+  if (t.train_acc != null) bits.push(`训练准确率 ${(t.train_acc * 100).toFixed(2)}%`);
+  meta.textContent = bits.join(" · ");
+
+  row.appendChild(name);
+  row.appendChild(meta);
+  state.trainList.appendChild(row);
+  return state.trainCard;
+}
+
+/* 多次 evaluate → 一张自适应对比表，自动标注每列最优值 */
+function upsertEvalCard(entry, state, container) {
+  if (!state.evalCard) {
+    state.evalCard = makeCardShell("模型评估对比");
+    const hint = document.createElement("div");
+    hint.className = "eval-hint";
+    hint.textContent = "同一测试集上的各模型表现 · 高亮为该列最优";
+    state.evalCard.appendChild(hint);
+
+    const wrap = document.createElement("div");
+    wrap.className = "table-scroll eval-scroll";
+    const table = document.createElement("table");
+    table.className = "compare-table";
+    state.evalTableHead = document.createElement("thead");
+    state.evalTableBody = document.createElement("tbody");
+    state.evalRows = new Map(); // 模型名 -> tr
+    table.appendChild(state.evalTableHead);
+    table.appendChild(state.evalTableBody);
+    wrap.appendChild(table);
+    state.evalCard.appendChild(wrap);
+
+    state.evalCharts = document.createElement("div");
+    state.evalCharts.className = "eval-charts";
+    state.evalCard.appendChild(state.evalCharts);
+    container.appendChild(state.evalCard);
+  }
+
+  // 列集合取并集（混跑分类+回归时列自适应扩展）
+  entry.metrics.forEach((m) => {
+    const label = m.label || "";
+    if (!state.evalMetrics.includes(label)) {
+      state.evalMetrics.push(label);
+      if (m.hint) state.evalHints[label] = m.hint;
+    }
+  });
+
+  // 重建表头
+  state.evalTableHead.innerHTML = "";
+  const headRow = document.createElement("tr");
+  const headModel = document.createElement("th");
+  headModel.textContent = "模型";
+  headRow.appendChild(headModel);
+  state.evalMetrics.forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    if (state.evalHints[label]) th.title = state.evalHints[label];
+    headRow.appendChild(th);
+  });
+  state.evalTableHead.appendChild(headRow);
+
+  // 补齐所有行的单元格数
+  state.evalRows.forEach((tr) => {
+    while (tr.cells.length < state.evalMetrics.length + 1) {
+      tr.appendChild(document.createElement("td"));
+    }
+  });
+
+  // 按模型名 upsert 行
+  let tr = state.evalRows.get(entry.model);
+  if (!tr) {
+    tr = document.createElement("tr");
+    const tdModel = document.createElement("td");
+    tdModel.className = "compare-model";
+    tr.appendChild(tdModel);
+    state.evalMetrics.forEach(() => tr.appendChild(document.createElement("td")));
+    state.evalRows.set(entry.model, tr);
+    state.evalTableBody.appendChild(tr);
+  }
+  tr.cells[0].textContent = entry.model;
+  state.evalMetrics.forEach((label, i) => {
+    const m = entry.metrics.find((x) => (x.label || "") === label);
+    tr.cells[i + 1].textContent = m ? String(m.value) : "—";
+  });
+
+  highlightEvalBest(state);
+
+  if (entry.chart) renderChart(entry.chart, state.evalCharts);
+  return state.evalCard;
+}
+
+/* 指标方向：RMSE/MSE 越低越好，其余（准确率/R²）越高越好；样本数不参与 */
+function highlightEvalBest(state) {
+  const rows = Array.from(state.evalTableBody.rows);
+  rows.forEach((r) => Array.from(r.cells).forEach((c) => c.classList.remove("is-best")));
+  state.evalMetrics.forEach((label, i) => {
+    if (/样本|数$/.test(label)) return;
+    const lowerIsBetter = /RMSE|MSE/i.test(label);
+    let bestVal = null, bestRow = null;
+    rows.forEach((r) => {
+      const v = parseFloat((r.cells[i + 1].textContent || "").replace(/[%\s]/g, ""));
+      if (!isFinite(v)) return;
+      if (
+        bestVal === null ||
+        (lowerIsBetter ? v < bestVal : v > bestVal)
+      ) { bestVal = v; bestRow = r; }
+    });
+    if (bestRow) bestRow.cells[i + 1].classList.add("is-best");
+  });
+}
+
+function renderResultCard(entry, container, agg) {
+  if (!entry) return;
+  const state = agg || createResultAggregator();
+  if (TRAIN_ACTIONS[entry.action] && entry.train) {
+    return upsertTrainCard(entry, state, container);
+  }
+  if (
+    entry.action === "evaluate" &&
+    entry.model &&
+    Array.isArray(entry.metrics) && entry.metrics.length
+  ) {
+    return upsertEvalCard(entry, state, container);
+  }
+  return renderFullResultCard(entry, container);
 }
 
 /* ---------------- message rendering ---------------- */
@@ -633,7 +813,8 @@ function displayParsedMessage(text, sender, options = {}) {
     bubble.appendChild(stepEl);
   }
   if (results && results.length) {
-    results.forEach((entry) => renderResultCard(entry, resultsWrap));
+    const agg = createResultAggregator();
+    results.forEach((entry) => renderResultCard(entry, resultsWrap, agg));
   } else if (chart) {
     renderChart(chart, resultsWrap); // 旧历史记录的单图表兼容
   }
@@ -717,12 +898,14 @@ async function sendMessage(presetText, options = {}) {
   setSendingUI(true);
 
   const { wrapper, bubble, resultsWrap } = createMessageWrapper("assistant");
+  const agg = createResultAggregator(); // v26: 结果卡片聚合状态（train 合并 / evaluate 对比表）
   const preview = showThinking(bubble, uploadedFileId ? "正在分析上传的数据" : "正在思考");
   chatBox.appendChild(wrapper);
   scrollBottom();
 
   let fullText = "";
   let finalData = null;
+  let liveResultCount = 0;
   let statusText = preview.querySelector(".thinking-text");
 
   try {
@@ -764,6 +947,14 @@ async function sendMessage(presetText, options = {}) {
         try {
           const msg = JSON.parse(d).message;
           if (statusText) statusText.textContent = msg;
+        } catch (e) {}
+      } else if (ev === "result") {
+        // v26: 结果卡片流式实时渲染（后端每个动作完成即推送）
+        try {
+          const entry = JSON.parse(d);
+          liveResultCount += 1;
+          renderResultCard(entry, resultsWrap, agg);
+          scrollBottom();
         } catch (e) {}
       } else if (ev === "final") {
         try { finalData = JSON.parse(d); } catch (e) {}
@@ -823,12 +1014,11 @@ async function sendMessage(presetText, options = {}) {
     stepEl.textContent = `🧾 执行步骤：${finalData.steps.join(" → ")}`;
     bubble.appendChild(stepEl);
   }
-  // 结果卡片在流式阶段已实时渲染；离屏/兜底时补渲染
-  const hasLiveResults = resultsWrap.children.length > 0;
+  // 结果卡片：流式阶段已通过 result 事件实时渲染；离屏/兜底时补渲染
   const finalResults = finalData?.results || [];
-  if (!hasLiveResults && finalResults.length) {
-    finalResults.forEach((entry) => renderResultCard(entry, resultsWrap));
-  } else if (!hasLiveResults && finalData?.chart) {
+  if (liveResultCount === 0 && finalResults.length) {
+    finalResults.forEach((entry) => renderResultCard(entry, resultsWrap, agg));
+  } else if (liveResultCount === 0 && finalData?.chart) {
     renderChart(finalData.chart, resultsWrap); // 旧后端单图表兜底
   }
   appendHistory("assistant", reply, finalData?.chart || null, finalData?.steps || null, finalResults.length ? finalResults : null);

@@ -495,7 +495,20 @@ def _action_train(params: Dict[str, Any], manager: ConversationManager) -> Tuple
     if train_acc is not None:
         text += f"- **训练集准确率**: {train_acc:.4f}\n"
     text += "\n接下来可以对模型执行 evaluate 操作，查看测试集表现。"
-    return text, None
+
+    # 结构化训练信息：前端据此把同一条指令里的多次训练合并成一张紧凑卡片
+    train_extra: Dict[str, Any] = {
+        "train": {
+            "model": MODEL_LABELS.get(model_key, model_key),
+            "model_key": model_key,
+            "task_type": task_type,
+            "samples": int(manager.X_train.shape[0]),
+            "features": int(manager.X_train.shape[1]),
+        }
+    }
+    if train_acc is not None:
+        train_extra["train"]["train_acc"] = round(float(train_acc), 4)
+    return text, None, train_extra
 
 
 def _action_evaluate(params: Dict[str, Any], manager: ConversationManager) -> Tuple[str, Optional[Dict[str, Any]], Dict[str, Any]]:
@@ -583,7 +596,13 @@ def _action_evaluate(params: Dict[str, Any], manager: ConversationManager) -> Tu
         history_df = pd.DataFrame(manager.metric_history).T
         text += history_df.to_markdown()
         text += "\n"
-    return text, chart, {"metrics": metrics, "task_type": task_type}
+    # model/model_key：前端据此把多次 evaluate 聚合成一张跨模型对比表
+    return text, chart, {
+        "metrics": metrics,
+        "task_type": task_type,
+        "model": model_label,
+        "model_key": manager.current_model_name,
+    }
 
 
 def _action_plot(params: Dict[str, Any], manager: ConversationManager) -> Tuple[str, Optional[Dict[str, Any]]]:

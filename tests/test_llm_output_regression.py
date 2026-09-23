@@ -343,6 +343,76 @@ def test_execute_action_always_returns_three_items():
 
 
 # ======================================================================
+# 六、跨模型 evaluate 去重误伤 + 结果聚合结构化数据（2026-09-23 事故）
+# ======================================================================
+
+def test_evaluate_not_deduped_across_models():
+    """事故：同一指令训练 3 个模型，evaluate 的 params 都是 {}，旧去重签名
+    完全相同 → 只有第一个模型的评估真正执行，其余被静默跳过（表格里全是 —）。"""
+    manager = ConversationManager("t-dedup-eval")
+    manager.set_data(load_sklearn_dataset("california_housing")[0], "california_housing")
+
+    plan = [
+        json.dumps({"actions": [
+            {"action": "train", "params": {"model": "linear_regression"}},
+            {"action": "evaluate", "params": {}},
+            {"action": "train", "params": {"model": "random_forest"}},
+            {"action": "evaluate", "params": {}},
+            {"action": "train", "params": {"model": "gbt"}},
+        ], "reply": "开始对比："}, ensure_ascii=False),
+        '{"reply": "对比完成。"}',
+    ]
+    result, _ = _run_with_stub(manager, "训练线性回归、随机森林和GBT并对比效果", plan)
+
+    assert result["steps"] == ["train", "evaluate", "train", "evaluate", "train"], (
+        "换模型后的 evaluate 不得被判为重复动作"
+    )
+    evals = [r for r in result["results"] if r["action"] == "evaluate"]
+    assert len(evals) == 2
+    assert all("R²" in r["text"] for r in evals)
+
+
+def test_evaluate_same_model_still_deduped():
+    """同一模型重复 evaluate 仍应被去重（护栏本意保留）。"""
+    manager = ConversationManager("t-dedup-same")
+    manager.set_data(load_sklearn_dataset("california_housing")[0], "california_housing")
+
+    plan = [
+        json.dumps({"actions": [
+            {"action": "train", "params": {"model": "linear_regression"}},
+            {"action": "evaluate", "params": {}},
+            {"action": "evaluate", "params": {}},
+        ]}),
+        '{"reply": "完成。"}',
+    ]
+    result, _ = _run_with_stub(manager, "训练并评估两次", plan)
+    assert result["steps"] == ["train", "evaluate"], "同一模型的重复 evaluate 应被跳过"
+
+
+def test_train_returns_structured_extra_for_frontend():
+    manager = ConversationManager("t-train-extra")
+    manager.set_data(load_sklearn_dataset("california_housing")[0], "california_housing")
+    text, chart, extra = actions.execute_action("train", {"model": "random_forest"}, manager)
+    info = extra["train"]
+    assert info["model"] == "随机森林"
+    assert info["model_key"] == "random_forest"
+    assert info["task_type"] == "regression"
+    assert info["samples"] == 16512
+    assert info["features"] == 8
+
+
+def test_evaluate_extra_includes_model_name():
+    """前端聚合对比表需要知道每次 evaluate 评估的是哪个模型。"""
+    manager = ConversationManager("t-eval-model")
+    manager.set_data(load_sklearn_dataset("california_housing")[0], "california_housing")
+    actions.execute_action("train", {"model": "gbt"}, manager)
+    text, chart, extra = actions.execute_action("evaluate", {}, manager)
+    assert extra["model"] == "梯度提升树（GBDT）"
+    assert extra["model_key"] == "gbt"
+    assert [m["label"] for m in extra["metrics"]] == ["R²", "RMSE", "MSE"]
+
+
+# ======================================================================
 # 零依赖运行器（无 pytest 时直接 python tests/test_llm_output_regression.py）
 # ======================================================================
 

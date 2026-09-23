@@ -161,6 +161,20 @@ function renderMarkdown(text) {
   return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(html) : html;
 }
 
+/* ---------------- 表格增强：滚动容器 + 吸顶表头 ----------------
+   宽表（如 breast_cancer 32 列）不能被 width:100% 压扁，
+   统一包进 .table-scroll：横向可滚、纵向限高、表头 sticky。 */
+function enhanceTables(container) {
+  if (!container) return;
+  container.querySelectorAll("table").forEach((table) => {
+    if (table.parentElement && table.parentElement.classList.contains("table-scroll")) return;
+    const wrap = document.createElement("div");
+    wrap.className = "table-scroll";
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  });
+}
+
 /* ---------------- P0-4: CJK 强调渲染兼容层 ----------------
    CommonMark 对 CJK 边界的强调判定有缺陷：
    `**setosa（类别0）**与其` 中闭侧 `**` 前是全角标点、后是汉字，
@@ -502,6 +516,7 @@ function renderResultCard(entry, container) {
   const text = (entry.text || "").trim();
   if (text) {
     body.innerHTML = renderMarkdown(text);
+    enhanceTables(body);
     enhanceCodeBlocks(body);
     fixCjkEmphasis(body);
     card.appendChild(body);
@@ -545,6 +560,7 @@ function displayParsedMessage(text, sender, options = {}) {
   const { wrapper, bubble, resultsWrap } = createMessageWrapper(sender);
   bubble.innerHTML = renderMarkdown(text);
   fixCjkEmphasis(bubble);
+  enhanceTables(bubble);
   enhanceCodeBlocks(bubble);
   if (steps && steps.length) {
     const stepEl = document.createElement("div");
@@ -723,6 +739,7 @@ async function sendMessage(presetText, options = {}) {
   const reply = finalData?.reply || fullText || "（没有收到回复）";
   bubble.innerHTML = renderMarkdown(reply);
   fixCjkEmphasis(bubble); // P0-4: CJK 强调兼容
+  enhanceTables(bubble);
   enhanceCodeBlocks(bubble);
   if (finalData?.steps?.length) {
     const stepEl = document.createElement("div");

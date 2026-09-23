@@ -86,11 +86,29 @@ def _action_preview(params: Dict[str, Any], manager: ConversationManager) -> Tup
 
     df = manager.current_data
     rows = int(params.get("rows", 5))
-    text = f"\n\n---\n\n**前 {rows} 行数据：**\n\n{df.head(rows).to_markdown(index=False)}\n\n"
-    text += "**数值列统计：**\n\n"
-    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    max_cols = int(params.get("max_cols", 10))  # wide tables: show first N columns
+
+    total_cols = df.shape[1]
+    col_note = ""
+    show_df = df
+    if total_cols > max_cols:
+        # 目标列（target/label 等）教学上最关键，裁剪时始终保留在末尾
+        target_cols = [c for c in df.columns if str(c).lower() in ("target", "target_label", "label", "y")]
+        feature_cols = [c for c in df.columns if c not in target_cols]
+        keep = feature_cols[: max(0, max_cols - len(target_cols))] + target_cols
+        show_df = df[keep]
+        omitted = total_cols - len(keep)
+        col_note = (
+            f"\n\n> 📌 数据集共 **{total_cols} 列**，表格仅展示前 {len(keep)} 列"
+            f"（其余 {omitted} 列已省略）。如需查看其他列，可以说\"预览 XX、YY 列\"。\n"
+        )
+
+    text = f"\n\n---\n\n**前 {rows} 行数据：**\n\n{show_df.head(rows).to_markdown(index=False)}\n"
+    text += col_note
+    text += "\n**数值列统计：**\n\n"
+    numeric_cols = show_df.select_dtypes(include=["number"]).columns.tolist()
     if numeric_cols:
-        stats_df = df[numeric_cols].describe().T[["count", "mean", "std", "min", "max"]]
+        stats_df = show_df[numeric_cols].describe().T[["count", "mean", "std", "min", "max"]]
         text += stats_df.to_markdown()
     else:
         text += "（无数值列）"

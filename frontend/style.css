@@ -769,3 +769,48 @@ body:not([data-theme="dark"]) .icon-sun { display: none; }
   max-width: 100%;
 }
 .result-body p:last-child { margin-bottom: 0; }
+
+/* ======================================================================
+   v24: 表格增强——宽表滚动容器 + 吸顶表头
+   ====================================================================== */
+.table-scroll {
+  overflow: auto;
+  max-height: 440px;
+  margin: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.table-scroll table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  font-size: 12px;
+}
+.table-scroll th,
+.table-scroll td {
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--page-bg);
+  box-shadow: 0 1px 0 var(--border);
+  font-weight: 600;
+}
+/* 首列也吸左，宽表横向滚动时保留行标识 */
+.table-scroll tbody th,
+.table-scroll thead th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--page-bg);
+  z-index: 1;
+}
+.table-scroll thead th:first-child { z-index: 3; }
+.table-scroll tbody tr:nth-child(even) th { background: var(--page-bg); }
+.table-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+.table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }

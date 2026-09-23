@@ -21,7 +21,7 @@ STUDENT_SYSTEM_PROMPT = """你是一个正在学习机器学习的学生，对�
    * params: {"dataset": "iris" | "wine" | "breast_cancer" | "california_housing"}
 
 2. "preview": 预览数据
-   * params: {"rows": 5}
+   * params: {"rows": 5, "max_cols": 10}（max_cols 可省略，宽表默认只展示前 10 列）
    * 系统会自动追加数据预览和统计信息
 
 3. "check_missing": 检查缺失值

@@ -12,3 +12,7 @@ venv/
 .DS_Store
 skills/
 agent-builder/
+node_modules/
+draft_*_folder/
+patent_diagrams/
+*.pyc.tmp

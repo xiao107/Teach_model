@@ -172,7 +172,38 @@ function enhanceTables(container) {
     wrap.className = "table-scroll";
     table.parentNode.insertBefore(wrap, table);
     wrap.appendChild(table);
+    addTableMeta(wrap, table);
   });
+}
+
+/* P1-2: 行数/列数徽标；长表默认折到 260px 并提供展开/收起 */
+function addTableMeta(wrap, table) {
+  const head = table.tHead;
+  const bodyRows = table.tBodies.length ? table.tBodies[0].rows.length : 0;
+  const cols = head && head.rows.length ? head.rows[0].cells.length : 0;
+  if (!cols) return;
+
+  const meta = document.createElement("div");
+  meta.className = "table-meta";
+  const size = document.createElement("span");
+  size.className = "table-badge";
+  size.textContent = `${bodyRows} 行 × ${cols} 列`;
+  meta.appendChild(size);
+
+  const tall = bodyRows > 8;
+  if (tall) {
+    wrap.classList.add("is-collapsed");
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "table-toggle";
+    toggle.textContent = "展开全部";
+    toggle.addEventListener("click", () => {
+      const collapsed = wrap.classList.toggle("is-collapsed");
+      toggle.textContent = collapsed ? "展开全部" : "收起";
+    });
+    meta.appendChild(toggle);
+  }
+  wrap.parentNode.insertBefore(meta, wrap.nextSibling);
 }
 
 /* ---------------- P0-4: CJK 强调渲染兼容层 ----------------
@@ -499,6 +530,35 @@ function renderWelcomeHero() {
 /* ---------------- P0-3: 结果卡片组件 ----------------
    每个动作的执行结果（表格/统计/图表）独立成卡片，
    支持一次指令输出多张图表、多张表格互不覆盖。 */
+/* P1-1: 评估指标卡片（大数字 + 标签 + 口径提示），替代纯 markdown 列表 */
+function buildMetricGrid(metrics) {
+  const grid = document.createElement("div");
+  grid.className = "metric-grid";
+  metrics.forEach((m) => {
+    const cell = document.createElement("div");
+    cell.className = "metric-card";
+
+    const value = document.createElement("div");
+    value.className = "metric-value";
+    value.textContent = m.value === undefined || m.value === null ? "—" : String(m.value);
+    cell.appendChild(value);
+
+    const label = document.createElement("div");
+    label.className = "metric-label";
+    label.textContent = m.label || "";
+    cell.appendChild(label);
+
+    if (m.hint) {
+      const hint = document.createElement("div");
+      hint.className = "metric-hint";
+      hint.textContent = m.hint;
+      cell.appendChild(hint);
+    }
+    grid.appendChild(cell);
+  });
+  return grid;
+}
+
 function renderResultCard(entry, container) {
   if (!entry) return;
   const card = document.createElement("div");
@@ -510,6 +570,10 @@ function renderResultCard(entry, container) {
   head.querySelector(".result-title").textContent =
     entry.title || ACTION_LABELS[entry.action] || entry.action || "执行结果";
   card.appendChild(head);
+
+  if (Array.isArray(entry.metrics) && entry.metrics.length) {
+    card.appendChild(buildMetricGrid(entry.metrics));
+  }
 
   const body = document.createElement("div");
   body.className = "result-body markdown-body";
@@ -677,8 +741,13 @@ async function sendMessage(presetText, options = {}) {
     });
     if (!response.ok || !response.body) {
       let detail = `HTTP ${response.status}`;
-      try { const j = await response.json(); if (j.message) detail = j.message; } catch (e) {}
-      throw new Error(detail);
+      let rid = "";
+      try {
+        const j = await response.json();
+        if (j.message) detail = j.message;
+        if (j.request_id) rid = j.request_id;
+      } catch (e) {}
+      throw new Error(rid ? `${detail}（请求号 ${rid}）` : detail);
     }
 
     await readSSE(response, (ev, d) => {
@@ -699,7 +768,14 @@ async function sendMessage(presetText, options = {}) {
       } else if (ev === "final") {
         try { finalData = JSON.parse(d); } catch (e) {}
       } else if (ev === "error") {
-        try { throw new Error(JSON.parse(d).message || "未知错误"); } catch (e) { throw new Error(e.message === "undefined" ? "未知错误" : e.message); }
+        let msg = "未知错误";
+        let rid = "";
+        try {
+          const payload = JSON.parse(d);
+          msg = payload.message || "未知错误";
+          rid = payload.request_id || "";
+        } catch (e) {}
+        throw new Error(rid ? `${msg}（请求号 ${rid}）` : msg);
       }
     });
   } catch (error) {
@@ -826,6 +902,11 @@ async function handleFileUpload(file) {
   if (!file.name.toLowerCase().endsWith(".csv")) {
     showUploadStatus("error", "请选择 CSV 文件"); return;
   }
+  if (file.size > 10 * 1024 * 1024) {
+    showUploadStatus("error", `文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），单个文件上限 10MB`);
+    setTimeout(() => hideUploadStatus(), 4000);
+    return;
+  }
   showUploadStatus("loading", `正在上传 ${file.name}...`);
   try {
     const fd = new FormData();
@@ -848,6 +929,46 @@ function showUploadStatus(type, msg) {
   uploadStatus.style.display = "";
 }
 function hideUploadStatus() { uploadStatus.style.display = "none"; }
+
+/* ---------------- drag & drop upload ----------------
+   start_server.sh 一直宣称"支持点击和拖拽上传"，但此前只实现了点击。
+   这里补齐拖拽：整页可投放，带投放遮罩反馈，复用同一条上传链路。 */
+const dropOverlay = document.getElementById("drop-overlay");
+let dragDepth = 0;
+
+function isFileDrag(e) {
+  const types = e.dataTransfer && e.dataTransfer.types;
+  return !!types && Array.prototype.indexOf.call(types, "Files") !== -1;
+}
+function setDragging(on) {
+  document.body.classList.toggle("dragging-file", on);
+  if (dropOverlay) dropOverlay.setAttribute("aria-hidden", on ? "false" : "true");
+}
+
+window.addEventListener("dragenter", (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragDepth += 1;
+  setDragging(true);
+});
+window.addEventListener("dragover", (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();               // 必须阻止默认行为，否则浏览器会直接打开文件
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+});
+window.addEventListener("dragleave", (e) => {
+  if (!isFileDrag(e)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) setDragging(false);
+});
+window.addEventListener("drop", (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  setDragging(false);
+  const files = e.dataTransfer ? e.dataTransfer.files : null;
+  if (files && files.length) handleFileUpload(files[0]);
+});
 
 /* ---------------- level picker ---------------- */
 const LEVEL_ICONS = { beginner: "🌱", intermediate: "🌿", advanced: "🌳" };

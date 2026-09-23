@@ -814,3 +814,110 @@ body:not([data-theme="dark"]) .icon-sun { display: none; }
 .table-scroll tbody tr:nth-child(even) th { background: var(--page-bg); }
 .table-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
 .table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ======================================================================
+   v25: 拖拽上传遮罩（补齐 start_server.sh 承诺的拖拽上传能力）
+   ====================================================================== */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--page-bg) 82%, transparent);
+  backdrop-filter: blur(2px);
+}
+body.dragging-file .drop-overlay { display: flex; }
+body.dragging-file, body.dragging-file * { cursor: copy !important; }
+
+.drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 30px 44px;
+  border: 2px dashed var(--primary);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  text-align: center;
+  animation: dropIn 0.18s var(--ease, ease);
+}
+@keyframes dropIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+.drop-card svg { width: 30px; height: 30px; color: var(--primary); margin-bottom: 2px; }
+.drop-card b { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.drop-card span { font-size: 12px; color: var(--text-secondary); }
+
+/* 限流提示条（429） */
+.upload-status.error { border-color: color-mix(in srgb, #e24b4a 40%, transparent); }
+
+/* ======================================================================
+   v25: P1-1 评估指标卡片
+   ====================================================================== */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px;
+  padding: 12px 14px 2px;
+}
+.metric-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--page-bg);
+  padding: 11px 12px;
+  text-align: center;
+}
+.metric-value {
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.metric-label {
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.metric-hint {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-placeholder);
+}
+
+/* P1-2: 表格规模徽标 + 展开/收起 */
+.table-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.table-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--page-bg);
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.table-toggle {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.table-toggle:hover { color: var(--primary); border-color: var(--primary); }
+.table-scroll.is-collapsed { max-height: 260px; }

@@ -134,6 +134,25 @@ def error_response(error_code: str, message: str, request: Optional[Request] = N
     return JSONResponse(status_code=status_code, content={"error_code": error_code, "message": message, "request_id": rid})
 
 
+def _rate_limited(http_request: Request) -> Optional[JSONResponse]:
+    """Per-IP limit shared by the expensive endpoints (chat / stream / upload).
+
+    限流器此前只被实例化、没有任何接口调用它（形同虚设）。这里统一接入。
+    """
+    ip = http_request.client.host if http_request.client else "unknown"
+    if rate_limiter.check(ip):
+        return None
+    logger.warning("Rate limit exceeded ip=%s limit=%d/min", ip, settings.rate_limit_per_minute)
+    response = error_response(
+        "RATE_LIMITED",
+        f"请求过于频繁：每分钟最多 {settings.rate_limit_per_minute} 次，请稍后再试。",
+        http_request,
+        status_code=429,
+    )
+    response.headers["Retry-After"] = "60"
+    return response
+
+
 # ---------------------------------------------------------------- app setup
 
 session_store = SessionStore(
@@ -235,8 +254,11 @@ def _get_manager_or_404(session_id: str):
 # ---------------------------------------------------------------- chat endpoints
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, http_request: Request):
     logger.info("Chat request session=%s message_len=%d", request.session_id, len(request.message))
+    limited = _rate_limited(http_request)
+    if limited is not None:
+        return limited
     if llm_breaker.is_open:
         return error_response("LLM_UNAVAILABLE", "AI 服务暂时不可用（连续失败熔断中），请稍后再试。", status_code=503)
 
@@ -263,8 +285,11 @@ async def chat_endpoint(request: ChatRequest):
 
 
 @app.post("/api/chat/stream")
-async def chat_stream_endpoint(request: ChatRequest):
+async def chat_stream_endpoint(request: ChatRequest, http_request: Request):
     """SSE streaming chat: status -> delta* -> final."""
+    limited = _rate_limited(http_request)
+    if limited is not None:
+        return limited
     if llm_breaker.is_open:
         return error_response("LLM_UNAVAILABLE", "AI 服务暂时不可用（连续失败熔断中），请稍后再试。", status_code=503)
 
@@ -301,8 +326,12 @@ async def chat_stream_endpoint(request: ChatRequest):
                 }, ensure_ascii=False)))
             except Exception as exc:
                 llm_breaker.record_failure()
-                logger.exception("Stream processing failed")
-                await queue.put(("error", json.dumps({"message": str(exc)}, ensure_ascii=False)))
+                request_id = getattr(getattr(http_request, "state", None), "request_id", "")
+                logger.exception("Stream processing failed request_id=%s", request_id)
+                await queue.put(("error", json.dumps({
+                    "message": str(exc),
+                    "request_id": request_id,
+                }, ensure_ascii=False)))
             finally:
                 await queue.put(("done", ""))
 
@@ -329,8 +358,11 @@ async def chat_stream_endpoint(request: ChatRequest):
 # ---------------------------------------------------------------- upload
 
 @app.post("/api/upload")
-async def upload_csv(file: UploadFile = File(...)):
+async def upload_csv(http_request: Request, file: UploadFile = File(...)):
     logger.info("Upload request filename=%s", file.filename)
+    limited = _rate_limited(http_request)
+    if limited is not None:
+        return limited
     if not file.filename or not file.filename.lower().endswith(".csv"):
         return error_response("UNSUPPORTED_TYPE", "仅支持 CSV 文件", status_code=400)
 

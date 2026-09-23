@@ -31,10 +31,15 @@ def execute_action(
     action: str,
     params: Dict[str, Any],
     manager: ConversationManager,
-) -> Tuple[str, Optional[Dict[str, Any]]]:
+) -> Tuple[str, Optional[Dict[str, Any]], Dict[str, Any]]:
     """
-    Execute a single action. Returns (markdown_appendix, chart_payload).
-    The appendix should be appended to the student's reply.
+    Execute a single action.
+
+    Returns (markdown_appendix, chart_payload, extra_meta).
+    - markdown_appendix: markdown text appended to the student's reply
+    - chart_payload: chart dict for the frontend renderer (or None)
+    - extra_meta: extra structured fields merged into the SSE result entry
+      (P1-1: evaluate 的指标卡片数据走这里，前端不必再解析 markdown)
     """
     handlers = {
         "plot": _action_plot,
@@ -53,8 +58,23 @@ def execute_action(
     }
     handler = handlers.get(action)
     if handler is None:
-        return f"\n\n❌ 不支持的操作类型：{action}", None
-    return handler(params or {}, manager)
+        return f"\n\n❌ 不支持的操作类型：{action}", None, {}
+    result = handler(params or {}, manager)
+    if len(result) == 3:
+        return result
+    return result[0], result[1], {}
+
+
+def _class_labels(manager: ConversationManager, values: Any) -> List[str]:
+    """类别索引 -> 人类可读标签（如 0 -> setosa），取不到就原样返回。"""
+    mapping: Dict[Any, Any] = {}
+    df = manager.current_data
+    if df is not None and "target" in df.columns and "target_label" in df.columns:
+        try:
+            mapping = dict(zip(df["target"].tolist(), df["target_label"].tolist()))
+        except Exception:
+            mapping = {}
+    return [str(mapping.get(v, v)) for v in values]
 
 
 # ---------------------------------------------------------------------- data actions
@@ -478,9 +498,9 @@ def _action_train(params: Dict[str, Any], manager: ConversationManager) -> Tuple
     return text, None
 
 
-def _action_evaluate(params: Dict[str, Any], manager: ConversationManager) -> Tuple[str, None]:
+def _action_evaluate(params: Dict[str, Any], manager: ConversationManager) -> Tuple[str, Optional[Dict[str, Any]], Dict[str, Any]]:
     if manager.current_model is None:
-        return "\n\n❌ 还没有训练模型，请先执行 train 操作。", None
+        return "\n\n❌ 还没有训练模型，请先执行 train 操作。", None, {}
 
     y_pred = manager.current_model.predict(manager.X_test)
     manager.last_eval_true = manager.y_test.to_numpy()
@@ -489,6 +509,8 @@ def _action_evaluate(params: Dict[str, Any], manager: ConversationManager) -> Tu
     task_type = manager.current_task_type
     model_label = MODEL_LABELS.get(manager.current_model_name, manager.current_model_name)
     text = f"\n\n---\n\n**✓ 模型评估结果（{model_label}）**\n\n"
+    metrics: List[Dict[str, Any]] = []
+    chart: Optional[Dict[str, Any]] = None
 
     if task_type == "classification":
         acc = accuracy_score(manager.y_test, y_pred)
@@ -500,12 +522,42 @@ def _action_evaluate(params: Dict[str, Any], manager: ConversationManager) -> Tu
                 pass
         manager.metric_history[manager.current_model_name] = {"accuracy": round(acc, 4)}
         text += f"- **测试集准确率**: {acc:.4f}\n"
+        metrics.append({
+            "label": "测试集准确率",
+            "value": f"{acc * 100:.2f}%",
+            "hint": f"原始值 {acc:.4f} · 越高越好",
+        })
         try:
             cm = confusion_matrix(manager.y_test, y_pred)
             cm_df = pd.DataFrame(cm)
             text += f"\n**混淆矩阵**（行=真实值，列=预测值）：\n\n{cm_df.to_markdown()}\n"
+
+            raw_labels = list(pd.unique(manager.y_test))
+            labels = _class_labels(manager, raw_labels)
+            data = [
+                [i, j, int(cm[i][j])]
+                for i in range(len(labels)) for j in range(len(labels))
+            ]
+            total = int(cm.sum()) or 1
+            correct = int(sum(cm[i][i] for i in range(len(labels))))
+            metrics.append({
+                "label": "样本数",
+                "value": str(total),
+                "hint": f"测试集 · 预测正确 {correct} 个",
+            })
+            chart = {
+                "type": "heatmap",
+                "title": f"混淆矩阵（{model_label}）",
+                "xLabel": "预测值",
+                "yLabel": "真实值",
+                "xLabels": labels,
+                "yLabels": labels,
+                "min": 0,
+                "max": int(cm.max()) if cm.size else 1,
+                "series": [{"name": "样本数", "data": data}],
+            }
         except Exception:
-            pass
+            logger.exception("Failed to build confusion matrix chart")
     else:
         mse = mean_squared_error(manager.y_test, y_pred)
         rmse = float(mse ** 0.5)
@@ -520,13 +572,18 @@ def _action_evaluate(params: Dict[str, Any], manager: ConversationManager) -> Tu
             f"- **RMSE**: {rmse:.4f}\n"
             f"- **R²**: {r2:.4f}\n"
         )
+        metrics += [
+            {"label": "R²", "value": f"{r2:.4f}", "hint": "越接近 1 越好"},
+            {"label": "RMSE", "value": f"{rmse:.4f}", "hint": "平均预测偏差，越小越好"},
+            {"label": "MSE", "value": f"{mse:.4f}", "hint": "均方误差"},
+        ]
 
     if len(manager.metric_history) > 1:
         text += "\n**历史模型指标对比：**\n\n"
         history_df = pd.DataFrame(manager.metric_history).T
         text += history_df.to_markdown()
         text += "\n"
-    return text, None
+    return text, chart, {"metrics": metrics, "task_type": task_type}
 
 
 def _action_plot(params: Dict[str, Any], manager: ConversationManager) -> Tuple[str, Optional[Dict[str, Any]]]:

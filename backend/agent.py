@@ -168,6 +168,21 @@ async def process_user_command(
             json_data, cleaned = _parse_json_response(response)
             action_list = _extract_actions(json_data) if json_data else []
 
+            # P2 可观测性：记录每轮 LLM 输出的结构判定，便于直接从日志定位异常形态
+            if json_data is None:
+                structure = "prose"          # 完全没解析出 JSON
+            elif action_list:
+                structure = "actions"
+            elif str(json_data.get("reply") or "").strip():
+                structure = "reply_only"     # 只有文字、没有动作
+            else:
+                structure = "empty"
+            logger.info(
+                "Round %d/%d structure=%s actions=%d reply_len=%d",
+                step + 1, settings.agent_max_steps, structure, len(action_list),
+                len(str(json_data.get("reply") or "")) if json_data else len(response),
+            )
+
             if not action_list:
                 round_reply = (
                     str(json_data.get("reply", "") or "").strip()
@@ -241,7 +256,7 @@ async def process_user_command(
                 executed_steps.append(act["action"])
                 if on_delta is not None:
                     await on_delta("status", f"执行 {act['action']}")
-                appendix, chart = await asyncio.to_thread(
+                appendix, chart, extra = await asyncio.to_thread(
                     actions.execute_action, act["action"], act["params"], manager
                 )
                 if chart is not None:
@@ -265,6 +280,9 @@ async def process_user_command(
                     "text": appendix_text,
                     "chart": chart,
                 }
+                # P1-1: 结构化附加字段（如 evaluate 的指标卡片数据）随结果一起下发
+                if extra:
+                    entry.update(extra)
                 results.append(entry)
                 executed.append({"action": act["action"], "result": appendix.strip()})
 
@@ -324,6 +342,11 @@ async def process_user_command(
             final_reply = "老师，这一轮的操作已经完成。"
 
         manager.add_message("assistant", final_reply)
+        logger.info(
+            "Command finished: steps=%d(%s) results=%d failed_actions=%d",
+            len(executed_steps), "→".join(executed_steps) or "-",
+            len(results), len(failure_counts),
+        )
         result: Dict[str, Any] = {
             "reply": final_reply,
             "steps": executed_steps,

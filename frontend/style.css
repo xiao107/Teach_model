@@ -398,10 +398,39 @@ body:not([data-theme="dark"]) .icon-sun { display: none; }
   padding: 11px 16px;
 }
 
-.markdown-body { font-size: 14.5px; word-break: break-word; }
-.markdown-body p { margin: 6px 0; }
-.markdown-body h1, .markdown-body h2, .markdown-body h3 { margin: 12px 0 6px; font-size: 1.1em; }
-.markdown-body ul, .markdown-body ol { padding-left: 22px; margin: 6px 0; }
+.markdown-body { font-size: 14.5px; line-height: 1.75; word-break: break-word; }
+.markdown-body p { margin: 8px 0; }
+/* v27: 聊天气泡内的标题层级——之前 h1/h2/h3 全压成 1.1em，
+   长概念讲解（如过拟合笔记）显得扁平拥挤 */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 { color: var(--text-primary); line-height: 1.4; }
+.markdown-body h1 {
+  font-size: 1.32em;
+  margin: 20px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.markdown-body h2 {
+  font-size: 1.16em;
+  margin: 18px 0 8px;
+  padding-left: 9px;
+  border-left: 3px solid var(--primary);
+}
+.markdown-body h3 { font-size: 1.06em; margin: 14px 0 6px; }
+.markdown-body h4 { font-size: 1em; margin: 12px 0 6px; color: var(--text-secondary); }
+.markdown-body h1:first-child,
+.markdown-body h2:first-child,
+.markdown-body h3:first-child { margin-top: 2px; }
+.markdown-body ul, .markdown-body ol { padding-left: 22px; margin: 8px 0; }
+.markdown-body li { margin: 4px 0; }
+.markdown-body li > ul, .markdown-body li > ol { margin: 4px 0; }
+.markdown-body hr {
+  margin: 14px 0;
+  border: none;
+  border-top: 1px dashed var(--border);
+}
 .markdown-body blockquote {
   margin: 8px 0; padding: 6px 12px;
   border-left: 3px solid var(--primary);
@@ -491,6 +520,14 @@ body:not([data-theme="dark"]) .icon-sun { display: none; }
 
 /* 流式预览 / 光标 */
 .stream-preview { color: var(--text-placeholder); font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
+/* v27: 模型"思考中"的叙述文本——从 reply 字段提取，不再显示 JSON 语法噪音 */
+.stream-text {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
 .typing-caret {
   display: inline-block; width: 2px; height: 1em;
   background: var(--primary);

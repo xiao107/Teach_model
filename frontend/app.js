@@ -852,9 +852,29 @@ function scrollBottom() {
 function showThinking(bubble, label) {
   const preview = document.createElement("div");
   preview.className = "stream-preview";
-  preview.innerHTML = `<span class="thinking-dots"><span></span><span></span><span></span></span><span class="thinking-text">${label || "正在思考"}</span>`;
+  preview.innerHTML =
+    `<span class="thinking-dots"><span></span><span></span><span></span></span>` +
+    `<span class="thinking-text">${label || "正在思考"}</span>` +
+    `<span class="stream-text" hidden></span>`;
   bubble.appendChild(preview);
   return preview;
+}
+
+/* v27: 流式预览净化。LLM 实际输出的是 JSON，把原文直接显示出来会满屏
+   {"reply": "..."} 语法噪音。这里增量提取最后一段 reply 字段的内容，
+   让"思考中"的预览只展示模型要说的话；reply 还没开始输出时保持思考动画。 */
+const REPLY_FIELD_RE = /"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+
+function extractStreamingText(raw) {
+  REPLY_FIELD_RE.lastIndex = 0;
+  let m, last = null;
+  while ((m = REPLY_FIELD_RE.exec(raw)) !== null) last = m;
+  if (!last) return "";
+  try {
+    return JSON.parse(`"${last[1]}"`);
+  } catch (e) {
+    return last[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+  }
 }
 
 async function readSSE(response, onEvent) {
@@ -905,7 +925,9 @@ async function sendMessage(presetText, options = {}) {
 
   let fullText = "";
   let finalData = null;
-  let liveResultCount = 0;
+  let pendingResults = []; // v27: 结果卡片先排队，等模型说完话（settle）再统一渲染
+  const dotsEl = preview.querySelector(".thinking-dots");
+  const streamText = preview.querySelector(".stream-text");
   let statusText = preview.querySelector(".thinking-text");
 
   try {
@@ -937,10 +959,15 @@ async function sendMessage(presetText, options = {}) {
       if (ev === "delta") {
         try {
           fullText += JSON.parse(d).text || "";
-          preview.textContent = fullText;
-          const caret = document.createElement("span");
-          caret.className = "typing-caret";
-          preview.appendChild(caret);
+          const shown = extractStreamingText(fullText);
+          if (shown) {
+            dotsEl.style.display = "none";
+            streamText.hidden = false;
+            streamText.textContent = shown;
+            const caret = document.createElement("span");
+            caret.className = "typing-caret";
+            streamText.appendChild(caret);
+          }
           scrollBottom();
         } catch (e) {}
       } else if (ev === "status") {
@@ -949,13 +976,8 @@ async function sendMessage(presetText, options = {}) {
           if (statusText) statusText.textContent = msg;
         } catch (e) {}
       } else if (ev === "result") {
-        // v26: 结果卡片流式实时渲染（后端每个动作完成即推送）
-        try {
-          const entry = JSON.parse(d);
-          liveResultCount += 1;
-          renderResultCard(entry, resultsWrap, agg);
-          scrollBottom();
-        } catch (e) {}
+        // v27: 只入队不渲染——等模型把话说完再按序展示，先"想"后"画"
+        try { pendingResults.push(JSON.parse(d)); } catch (e) {}
       } else if (ev === "final") {
         try { finalData = JSON.parse(d); } catch (e) {}
       } else if (ev === "error") {
@@ -1014,11 +1036,13 @@ async function sendMessage(presetText, options = {}) {
     stepEl.textContent = `🧾 执行步骤：${finalData.steps.join(" → ")}`;
     bubble.appendChild(stepEl);
   }
-  // 结果卡片：流式阶段已通过 result 事件实时渲染；离屏/兜底时补渲染
-  const finalResults = finalData?.results || [];
-  if (liveResultCount === 0 && finalResults.length) {
+  // 结果卡片：模型说完话后统一渲染（优先用 final 数据，SSE 断流时用排队数据兜底）
+  const finalResults = (finalData?.results && finalData.results.length)
+    ? finalData.results
+    : pendingResults;
+  if (finalResults.length) {
     finalResults.forEach((entry) => renderResultCard(entry, resultsWrap, agg));
-  } else if (liveResultCount === 0 && finalData?.chart) {
+  } else if (finalData?.chart) {
     renderChart(finalData.chart, resultsWrap); // 旧后端单图表兜底
   }
   appendHistory("assistant", reply, finalData?.chart || null, finalData?.steps || null, finalResults.length ? finalResults : null);

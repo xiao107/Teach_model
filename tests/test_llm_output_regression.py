@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import backend.agent as agent  # noqa: E402
 from backend import actions  # noqa: E402
+from backend import charts  # noqa: E402
 from backend.data_loader import load_sklearn_dataset  # noqa: E402
 from backend.llm_client import parse_json_response  # noqa: E402
 from backend.state import ConversationManager  # noqa: E402
@@ -150,10 +151,52 @@ def test_operation_keyword_detection():
         ("check the missing values", True),
         ("什么是过拟合？", False),
         ("解释一下决策树的原理", False),
+        ("只对比同量级的特征", False),   # 弱操作词：不在强词表，但配合"已生成"话术会触发纠偏
+        ("对比一下过拟合和欠拟合的区别", False),
     ]
     for command, expected in cases:
         got = bool(agent._OPERATION_KEYWORD_RE.search(command))
         assert got is expected, f"{command!r} 期望 {expected}，实际 {got}"
+
+
+def test_hallucinated_chart_reply_triggers_corrective_nudge():
+    """事故：老师要求'只对比同量级的特征'，模型没有输出 plot，却回复
+    '柱状图已生成！可以看出…'（图表和数据全是编造）。弱操作词 + 已生成话术
+    必须触发纠偏，逼出真正的 plot 动作。"""
+    manager = ConversationManager("t-fake-chart")
+    manager.set_data(load_sklearn_dataset("california_housing")[0], "california_housing")
+
+    fake_reply = (
+        '{"reply": "老师，同量级特征的均值柱状图已生成！可以看出 HouseAge 均值最高（约 28.6），'
+        'MedInc 均值约 3.87。这样就避开了 Population 把图压扁的问题。"}'
+    )
+    plan = [
+        fake_reply,  # 纯散文 + 幻觉图表，无动作
+        json.dumps({"action": "plot", "params": {"chart_type": "bar", "agg": "mean",
+                                                "columns": ["MedInc", "HouseAge", "AveRooms", "AveBedrms", "AveOccup"]}}),
+        '{"reply": "对比图已完成。"}',
+    ]
+    result, calls = _run_with_stub(manager, '只对比"同量级"的特征', plan)
+
+    assert calls["n"] == 3, f"应为 纠偏 → 执行 plot → 总结 三轮，实际 {calls['n']} 轮"
+    nudged = any(
+        "系统纠偏" in (m.get("content") or "") and "编造" in (m.get("content") or "")
+        for messages in calls["messages"] for m in messages
+    )
+    assert nudged, "必须针对'无中生有的图表'使用专属纠偏话术"
+    assert "plot" in result["steps"], "纠偏后必须真正执行 plot"
+    chart_entry = next(r for r in result["results"] if r["action"] == "plot")
+    assert chart_entry["chart"] is not None, "plot 必须产出真实图表载荷"
+
+
+def test_pure_concept_question_not_nudged():
+    """弱操作词（对比）出现在纯概念问答里，且回复没有'已生成'话术 → 不应纠偏。"""
+    manager = ConversationManager("t-concept")
+    plan = ['{"reply": "过拟合是模型记住了训练数据的噪声，欠拟合是模型连训练数据的规律都没学到。"}']
+    result, calls = _run_with_stub(manager, "对比一下过拟合和欠拟合的区别", plan)
+    assert calls["n"] == 1, "纯概念问答不应浪费纠偏轮次"
+    assert result["steps"] == []
+    assert "过拟合" in result["reply"]
 
 
 def _run_with_stub(manager, command, responses):
@@ -410,6 +453,35 @@ def test_evaluate_extra_includes_model_name():
     assert extra["model"] == "梯度提升树（GBDT）"
     assert extra["model_key"] == "gbt"
     assert [m["label"] for m in extra["metrics"]] == ["R²", "RMSE", "MSE"]
+
+
+# ======================================================================
+# 七、plot 聚合柱状图：让"对比同量级特征均值"真正可执行
+# ======================================================================
+
+def test_bar_agg_mode_builds_mean_comparison():
+    """旧版 bar 只支持 x_column/y_column 画原始行，画不出'各特征均值对比'，
+    模型只能编造图表。新增 agg 聚合模式后必须真实计算。"""
+    manager = ConversationManager("t-aggbar")
+    manager.set_data(load_sklearn_dataset("california_housing")[0], "california_housing")
+    chart = charts.create_chart(
+        {"chart_type": "bar", "agg": "mean", "columns": ["MedInc", "HouseAge", "AveOccup"]},
+        manager,
+    )
+    assert chart and chart["type"] == "bar"
+    assert chart["series"][0]["x"] == ["MedInc", "HouseAge", "AveOccup"]
+    y = dict(zip(chart["series"][0]["x"], chart["series"][0]["y"]))
+    assert abs(y["MedInc"] - float(manager.current_data["MedInc"].mean())) < 1e-3
+    assert all(v < 100 for v in y.values()), "聚合值是列级统计量，绝不能是原始行数据"
+
+
+def test_bar_agg_falls_back_to_numeric_features():
+    manager = ConversationManager("t-aggbar2")
+    manager.set_data(load_sklearn_dataset("california_housing")[0], "california_housing")
+    chart = charts.create_chart({"chart_type": "bar", "agg": "median"}, manager)
+    assert chart and chart["type"] == "bar"
+    assert len(chart["series"][0]["x"]) == 8, "未指定列时应取全部 8 个数值特征列"
+    assert all("target" not in c.lower() for c in chart["series"][0]["x"])
 
 
 # ======================================================================

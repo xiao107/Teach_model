@@ -4,7 +4,7 @@ ECharts payload builders driven by LLM-provided action parameters.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -146,8 +146,43 @@ def build_line(params: Dict[str, Any], manager: ConversationManager) -> Optional
     }
 
 
+_AGG_LABELS = {"mean": "均值", "median": "中位数", "max": "最大值", "min": "最小值", "sum": "总和"}
+
+
+def _match_columns(df: pd.DataFrame, columns: Any, numeric_only: bool = True) -> List[str]:
+    """按名称精确/模糊匹配列（大小写不敏感、支持包含关系），去重保序。"""
+    matched: List[str] = []
+    for col in columns or []:
+        name = str(col)
+        if name in df.columns:
+            hit = name
+        else:
+            low = name.lower()
+            hit = next(
+                (
+                    c for c in df.columns
+                    if low in str(c).lower() or str(c).lower() in low
+                ),
+                None,
+            )
+        if hit and hit not in matched:
+            matched.append(hit)
+    if numeric_only:
+        matched = [c for c in matched if pd.api.types.is_numeric_dtype(df[c])]
+    return matched
+
+
 def build_bar(params: Dict[str, Any], manager: ConversationManager) -> Optional[Dict[str, Any]]:
     df = manager.current_data
+
+    # 聚合模式：{"chart_type": "bar", "agg": "mean", "columns": [...]}
+    # 每列聚合出一个值画一根柱子，用于"对比同量级特征的均值"这类需求。
+    # 旧版 bar 只支持 x_column/y_column 画原始行，画不出列级聚合，
+    # 模型无奈之下只能编造"已生成"的假图表。
+    agg = str(params.get("agg") or "").lower()
+    if agg in _AGG_LABELS:
+        return _build_agg_bar(params, manager, agg)
+
     x_col = params.get("x_column")
     y_col = params.get("y_column")
 
@@ -169,6 +204,36 @@ def build_bar(params: Dict[str, Any], manager: ConversationManager) -> Optional[
                 "y": y_data,
             }
         ],
+    }
+
+
+def _build_agg_bar(params: Dict[str, Any], manager: ConversationManager, agg: str) -> Optional[Dict[str, Any]]:
+    """各列聚合值对比柱状图（agg ∈ mean/median/max/min/sum）。"""
+    df = manager.current_data
+    matched = _match_columns(df, params.get("columns"))
+    if not matched:
+        # 未指定列：取全部数值特征列（排除目标列），最多 12 根柱子
+        matched = [
+            c for c in df.select_dtypes(include=["number"]).columns
+            if "target" not in str(c).lower()
+        ]
+    matched = matched[: int(params.get("max_columns", 12))]
+    if not matched:
+        return None
+
+    values = df[matched].agg(agg)
+    unit = _AGG_LABELS[agg]
+    return {
+        "type": "bar",
+        "chartSubtype": "agg-bar",
+        "title": params.get("title") or f"各特征{unit}对比",
+        "xLabel": "特征",
+        "yLabel": unit,
+        "series": [{
+            "name": unit,
+            "x": matched,
+            "y": [round(float(v), 4) for v in values.tolist()],
+        }],
     }
 
 

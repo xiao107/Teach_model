@@ -50,11 +50,32 @@ _OPERATION_KEYWORD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 弱操作词：单独出现不触发纠偏（"对比一下过拟合和欠拟合"是纯概念问答），
+# 但若模型回复同时声称"已生成/已完成"，则说明它在无中生有，必须纠偏。
+_WEAK_OP_KEYWORD_RE = re.compile(
+    r"对比|比较|均值|平均|分布|占比|趋势|相关",
+    re.IGNORECASE,
+)
+
+# 模型声称"操作已完成"的话术（用于识别幻觉：系统实际什么都没执行）
+_CLAIM_RE = re.compile(
+    r"已生成|已绘制|已画出|已执行|已完成|已加载|已训练|已评估|已填充|已分割|已计算|"
+    r"如下图|如图所示|图表如下|结果如下",
+)
+
 _CORRECTIVE_NUDGE = (
     "【系统纠偏】你上一次的回复只有过渡性文字，没有包含任何 action 或 actions 字段，"
     "系统什么都没有执行，这是严重错误。请立刻重新输出完整 JSON："
     "根据老师的指令给出 action（单步）或 actions 数组（多步，最多 5 步），"
     "reply 保持简短。不要输出任何不含动作的过渡语。"
+)
+
+_CORRECTIVE_NUDGE_CLAIM = (
+    "【系统纠偏】你声称图表/操作已生成，但系统什么都没有执行（没有任何 action），"
+    "老师那边看不到任何图表或结果，你描述的数据全部是编造的——这是最严重的错误。"
+    "请立刻重新输出完整 JSON，包含真正可执行的 action/actions"
+    "（画图必须输出 plot 并带正确参数），reply 保持简短，"
+    "只确认操作本身，数据和结论必须等系统回填真实结果后再说。"
 )
 
 
@@ -207,21 +228,29 @@ async def process_user_command(
 
                 # P0-2: transition-only guard — the model produced prose like
                 # "好的老师，正在训练模型：" without any action. Nudge once.
+                # v27: 两种触发方式——
+                #   a) 指令含强操作词（画/训练/加载…）却只回过渡语；
+                #   b) 指令只含弱操作词（对比/均值…）但回复声称"已生成"——
+                #      此时系统什么都没执行，"已生成"是幻觉，必须纠偏。
+                strong_op_hit = bool(_OPERATION_KEYWORD_RE.search(command))
+                weak_op_hit = bool(_WEAK_OP_KEYWORD_RE.search(command))
+                claim_hit = bool(_CLAIM_RE.search(round_reply))
                 if (
                     step == 0
                     and not corrective_used
-                    and _OPERATION_KEYWORD_RE.search(command)
+                    and (strong_op_hit or (weak_op_hit and claim_hit))
                 ):
                     corrective_used = True
+                    nudge = _CORRECTIVE_NUDGE_CLAIM if claim_hit else _CORRECTIVE_NUDGE
                     logger.warning(
-                        "Round 1 returned no actions (transition-only?), nudging model. reply=%r",
-                        round_reply[:80],
+                        "Round 1 returned no actions (strong_op=%s weak_op=%s claim=%s), nudging. reply=%r",
+                        strong_op_hit, weak_op_hit, claim_hit, round_reply[:80],
                     )
                     if on_delta is not None:
                         await on_delta("status", "重新组织回复...")
                     messages = messages + [
                         {"role": "assistant", "content": response},
-                        {"role": "user", "content": _CORRECTIVE_NUDGE},
+                        {"role": "user", "content": nudge},
                     ]
                     continue
 

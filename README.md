@@ -15,23 +15,59 @@
 - **工程化**：pydantic-settings 配置中心化、request_id 贯穿日志、单 IP 限流（20 次/分）、LLM 熔断（3 次失败 / 60s）、统一错误格式
 - **前端**：品牌渐变主题、暗色模式、微交互动效包、欢迎页引导、响应式抽屉侧栏
 
-## 快速开始
+## 快速开始（Windows / macOS 通用）
+
+> **分发包用户**：`Teach_model_v1.0.zip` 内已包含配置好的 `.env`（DeepSeek 密钥），
+> 解压后直接执行下方一键脚本即可运行，无需再配置。
+> ⚠️ 压缩包含 API 密钥，请勿公开传播；如需更换密钥，编辑 `.env` 中的 `DEEPSEEK_API_KEY`。
+
+### 分发包内容
+
+```
+Teach_model_v1.0.zip
+├── backend/            # FastAPI 后端（11 个模块）
+├── frontend/           # 原生 JS 单页前端
+├── tests/              # LLM 输出回归测试（38 条，可 python 直跑）
+├── start_server.sh     # macOS / Linux 一键启动
+├── start_server.bat    # Windows 一键启动（自动创建 .venv 并装依赖）
+├── verify_setup.sh     # 环境自检
+├── requirements.txt    # 依赖清单（双平台，版本锁定）
+├── .env / .env.example # 运行配置（含密钥 / 模板）
+├── README.md / OPTIMIZATION_TODO.md / test_integration.py
+└── .gitignore
+```
+
+### 方式一：一键脚本（推荐）
 
 ```bash
-# 1. 环境（conda 环境 teach_llm，Python 3.13）
-conda activate teach_llm
-pip install -r backend/requirements.txt
+# 1. 配置 API 密钥：复制 .env.example 为 .env，填入 DEEPSEEK_API_KEY
+
+# 2. 启动（自动创建 .venv 并安装依赖）
+bash start_server.sh          # macOS / Linux
+start_server.bat              # Windows（双击或在 cmd / PowerShell 中运行）
+
+# 3. 访问 http://localhost:8000
+```
+
+### 方式二：手动
+
+```bash
+# 1. 环境（Python 3.11+，建议 3.13；conda 或 venv 均可）
+python -m venv .venv
+source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 
 # 2. 配置 .env
 DEEPSEEK_API_KEY=your_api_key_here
 DEEPSEEK_MODEL=deepseek-chat
 
 # 3. 启动
-bash start_server.sh        # 或手动：
-# ~/opt/anaconda3/envs/teach_llm/bin/python -m uvicorn backend.main:app --port 8000 --reload
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 4. 访问 http://localhost:8000
 ```
+
+> macOS 上若存在 conda 环境 `teach_llm`，`start_server.sh` 会优先使用它。
 
 环境自检：`bash verify_setup.sh`；集成测试：`python test_integration.py`
 

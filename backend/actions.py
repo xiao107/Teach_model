@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor
@@ -545,7 +546,9 @@ def _action_evaluate(params: Dict[str, Any], manager: ConversationManager) -> Tu
             cm_df = pd.DataFrame(cm)
             text += f"\n**混淆矩阵**（行=真实值，列=预测值）：\n\n{cm_df.to_markdown()}\n"
 
-            raw_labels = list(pd.unique(manager.y_test))
+            # confusion_matrix 默认按 np.unique 排序后的类别顺序排列行列，
+            # 轴标签必须用同样的排序（pd.unique 是出现顺序，会错位）
+            raw_labels = [v.item() if hasattr(v, "item") else v for v in np.unique(manager.y_test)]
             labels = _class_labels(manager, raw_labels)
             data = [
                 [i, j, int(cm[i][j])]
